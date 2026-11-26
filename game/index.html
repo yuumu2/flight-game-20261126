@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- Provides the game canvases, menus, and local module entry point. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#2e3d6e">
+  <title>Duskmail Atoll</title>
+  <style>
+    :root { --amber: #ffc46b; --cyan: #7fe7ff; --panel: #101727e8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; overflow: hidden; background: #2e3d6e; font: 1rem/1.5 system-ui, sans-serif; }
+    canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+    #hud { pointer-events: none; }
+    .overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 1rem; overflow: auto; }
+    .overlay[hidden] { display: none; }
+    .panel {
+      width: min(100%, 34rem); padding: clamp(1.25rem, 5vw, 3rem);
+      background: var(--panel); color: var(--cyan); border: 1px solid var(--amber);
+      border-radius: 0.5rem; box-shadow: 0 1rem 4rem #060a14a0;
+    }
+    h1, h2 { margin: 0; color: var(--amber); letter-spacing: 0.08em; line-height: 1.1; }
+    h1 { font-size: clamp(2rem, 7vw, 3.5rem); }
+    ul { padding-left: 1.25rem; }
+    button {
+      max-width: 100%; margin-top: 0.75rem; padding: 0.65rem 1rem; border: 1px solid currentColor;
+      border-radius: 0.25rem; background: transparent; color: var(--amber); font: inherit; cursor: pointer;
+    }
+    button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 4px; }
+    #breakdown dl { display: grid; grid-template-columns: 1fr auto; gap: 0.45rem 1.5rem; }
+    #breakdown dd { margin: 0; color: var(--amber); text-align: right; font: 600 1rem/1.5 ui-monospace, monospace; }
+    #breakdown dt:nth-last-of-type(-n+2) { font-weight: 700; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  </style>
+  <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
+  <script type="module" src="./src/main.js"></script>
+</head>
+<body>
+  <canvas id="game" aria-label="Flight view"></canvas>
+  <canvas id="hud" aria-hidden="true"></canvas>
+  <section id="title-screen" class="overlay" aria-labelledby="title">
+    <div class="panel">
+      <h1 id="title">DUSKMAIL ATOLL</h1>
+      <p>Golden-hour mail run: fly the ring course around the atoll and land back on the shore strip.</p>
+      <ul>
+        <li>↑ / ↓ to climb or descend</li>
+        <li>← / → or A / D to roll</li>
+        <li>W / S to adjust throttle</li>
+        <li>Space to start, P to pause</li>
+      </ul>
+      <button type="button">Press Space or click to fly</button>
+    </div>
+  </section>
+  <section id="result-screen" class="overlay" aria-labelledby="result-title" hidden>
+    <div class="panel">
+      <h2 id="result-title">Flight results</h2>
+      <div id="breakdown"></div>
+      <button type="button">Press Space or click to fly again</button>
+    </div>
+  </section>
+  <div id="status" class="sr-only" role="status"></div>
+</body>
+</html>
