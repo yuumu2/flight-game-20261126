@@ -13,13 +13,23 @@ export const TERRAIN = {
 };
 export const AIRCRAFT = {
   minSpeed: 16, maxSpeed: 74, throttleRate: 0.45,
-  pitchRate: 2.6, rollRate: 3.6, turnFactor: 0.62, stallSpeed: 22,
+  pitchRate: 2.6, rollRate: 3.6, turnFactor: 0.62,
   autoLevelPitch: 1.5, autoLevelRoll: 2.0, maxPitch: 0.42, maxRoll: 0.88,
   initialThrottle: 0.56, speedResponse: 1.05, pitchSpeedFactor: 22,
-  turnReferenceSpeed: 42, stallSink: 0.9, groundClearance: 1.1,
+  turnReferenceSpeed: 42, groundClearance: 1.1,
   landingSink: 4.5, landingSpeed: 33, landingRoll: 0.28,
   takeoffSpeed: 27, takeoffThrottle: 0.25, spawnInset: 22,
   propellerIdle: 10, propellerPower: 42,
+};
+export const STALL = {
+  aoaWarn: 12 * Math.PI / 180, aoaCrit: 15 * Math.PI / 180,
+  fadeBand: 6 * Math.PI / 180, loadPenalty: 7 * Math.PI / 180, loadLimit: 2,
+  liftResponse: 10, liftResponseStalled: 2.2, sinkRate: 9.5,
+  bankSinkScale: 1.0,
+  noseDropRate: 0.32, pitchAuthorityLoss: 0.55,
+  liftSpeedLow: 31, liftSpeedFull: 38, liftAuthorityLow: 0.075,
+  buffetVertical: 0.06, buffetLateral: 0.04, buffetRoll: 0.01,
+  buffetVerticalRate: 41, buffetLateralRate: 33, buffetRollRate: 47,
 };
 export const COURSE = {
   ringCount: 10, ringRadius: 16, ringScore: 100, parTimeSeconds: 300,
@@ -55,7 +65,7 @@ export const VIEW = {
   orbitRadius: 1950, orbitHeight: 535, orbitRate: 0.048, shotFrames: 14,
 };
 export const HUD = {
-  feetPerMetre: 3.281, knotsPerMetreSecond: 1.944, compassWidth: 340, tickDegrees: 15,
+  feetPerMetre: 3.281, knotsPerMetreSecond: 1.944, compassWidth: 290, tickDegrees: 15,
   panel: 'rgba(8, 12, 20, 0.55)', border: 'rgba(255, 196, 107, 0.45)',
   muted: '#d0dce0', ground: '#a56d46', sky: '#476c87', shade: 'rgba(8, 12, 20, 0.32)',
 };

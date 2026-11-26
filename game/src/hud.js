@@ -1,6 +1,7 @@
 // Draws flight instruments and next-target guidance on the overlay canvas.
 import * as THREE from 'three';
-import { COURSE, HUD, PALETTE, VIEW } from './config.js';
+import { COURSE, HUD, PALETTE, RUNWAY, VIEW, WORLD } from './config.js';
+import { runwayCenter, runwayTangent } from './world.js';
 
 const amber = PALETTE.hudAmber;
 const cyan = PALETTE.hudCyan;
@@ -19,6 +20,11 @@ export function createHud(canvas) {
   const projected = new THREE.Vector3();
   let width;
   let height;
+  let staged = false;
+
+  function setStaged(value) {
+    staged = value;
+  }
 
   function resize() {
     width = window.innerWidth;
@@ -70,28 +76,28 @@ export function createHud(canvas) {
     const degrees = wrapDegrees(THREE.MathUtils.radToDeg(heading));
     const tickSize = HUD.tickDegrees;
     const cardinal = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' };
-    panel(left, y, stripWidth, 63);
+    panel(left, y, stripWidth, 54);
     ctx.save();
     ctx.beginPath();
-    ctx.rect(left + 5, y, stripWidth - 10, 49);
+    ctx.rect(left + 5, y, stripWidth - 10, 38);
     ctx.clip();
     const pixelsPerDegree = stripWidth / 115;
     for (let tick = Math.floor((degrees - 60) / tickSize) * tickSize; tick <= degrees + 60; tick += tickSize) {
       const x = center + (tick - degrees) * pixelsPerDegree;
       const value = wrapDegrees(tick);
       const label = cardinal[value] ?? (value % 30 === 0 ? value : '');
-      line(x, y + 21, x, y + (label === '' ? 28 : 33), amber);
-      if (label !== '') text(label, x, y + 13, cardinal[value] ? cyan : amber, 11, 'center');
+      line(x, y + 18, x, y + (label === '' ? 24 : 28), amber);
+      if (label !== '') text(label, x, y + 11, cardinal[value] ? cyan : amber, 11, 'center');
     }
     ctx.restore();
     ctx.beginPath();
-    ctx.moveTo(center - 4, y + 39);
-    ctx.lineTo(center, y + 32);
-    ctx.lineTo(center + 4, y + 39);
+    ctx.moveTo(center - 4, y + 34);
+    ctx.lineTo(center, y + 28);
+    ctx.lineTo(center + 4, y + 34);
     ctx.closePath();
     ctx.fillStyle = cyan;
     ctx.fill();
-    text(`HDG ${String(wrapDegrees(Math.round(degrees))).padStart(3, '0')}°`, center, y + 50, cyan, 13, 'center');
+    text(`HDG ${String(wrapDegrees(Math.round(degrees))).padStart(3, '0')}°`, center, y + 43, cyan, 13, 'center');
   }
 
   function attitude(flight, x, y, radius) {
@@ -103,12 +109,17 @@ export function createHud(canvas) {
     ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
     ctx.translate(x, y);
     ctx.rotate(-flight.roll);
-    const horizon = flight.pitch * radius * 2.35;
+    const pitchScale = radius * 2.35;
+    const limit = radius * 0.85;
+    const horizon = THREE.MathUtils.clamp(flight.pitch * pitchScale, -limit, limit);
     ctx.fillStyle = HUD.ground;
     ctx.fillRect(-radius * 2, horizon, radius * 4, radius * 4);
     line(-radius * 2, horizon, radius * 2, horizon, amber);
-    for (const offset of [-0.45, -0.23, 0.23, 0.45]) {
-      line(-radius * 0.24, horizon + offset * radius, radius * 0.24, horizon + offset * radius, HUD.muted);
+    ctx.lineWidth = 2;
+    for (const degrees of [-20, -10, 10, 20]) {
+      const level = horizon + THREE.MathUtils.degToRad(degrees) * pitchScale;
+      line(-radius * 0.30, level, -radius * 0.10, level, HUD.muted);
+      line(radius * 0.10, level, radius * 0.30, level, HUD.muted);
     }
     ctx.restore();
     ctx.beginPath();
@@ -119,6 +130,70 @@ export function createHud(canvas) {
     line(x + 5, y, x + 17, y, cyan);
     ctx.fillStyle = cyan;
     ctx.fillRect(x - 1, y - 1, 2, 2);
+  }
+
+  function radar(flight, course, position, x, y, radius) {
+    const scale = 2 * radius / WORLD.size;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.fillStyle = HUD.panel;
+    ctx.fill();
+    ctx.clip();
+
+    const runwayX = runwayCenter.x * scale;
+    const runwayY = runwayCenter.z * scale;
+    const halfStrip = RUNWAY.length * scale / 2;
+    const endX = runwayTangent.x * halfStrip;
+    const endY = runwayTangent.z * halfStrip;
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    line(runwayX - endX, runwayY - endY, runwayX + endX, runwayY + endY, PALETTE.centerline);
+
+    const { nextIndex, finished, elapsed } = course.state;
+    ctx.lineWidth = 1;
+    course.ringPositions.forEach((ring, index) => {
+      const passed = index < nextIndex;
+      const active = index === nextIndex && !finished;
+      const ringX = ring.x * scale;
+      const ringY = ring.z * scale;
+      const color = passed ? PALETTE.ringPassed : active ? PALETTE.ringNext : PALETTE.ring;
+      ctx.beginPath();
+      ctx.arc(ringX, ringY, passed ? 2 : active ? 4 : 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      if (active) {
+        const pulseRadius = 5.5 + 1.5 * Math.sin(elapsed * 4.2);
+        ctx.beginPath();
+        ctx.arc(ringX, ringY, pulseRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = color;
+        ctx.stroke();
+      }
+    });
+
+    ctx.save();
+    ctx.translate(position.x * scale, position.z * scale);
+    ctx.rotate(flight.heading);
+    ctx.beginPath();
+    ctx.moveTo(0, -5);
+    ctx.lineTo(3, 4);
+    ctx.lineTo(-3, 4);
+    ctx.closePath();
+    ctx.fillStyle = cyan;
+    ctx.fill();
+    line(0, -5, 0, -10, cyan);
+    ctx.restore();
+    text('N', 0, 9 - radius, HUD.muted, 9, 'center');
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = HUD.border;
+    ctx.stroke();
+    ctx.restore();
   }
 
   function drawTarget(target, camera, position) {
@@ -138,10 +213,11 @@ export function createHud(canvas) {
       const x = cx + sx;
       const y = height / 2 + sy;
       ctx.beginPath();
-      ctx.moveTo(x, y - 8);
-      ctx.lineTo(x + 8, y);
-      ctx.lineTo(x, y + 8);
-      ctx.lineTo(x - 8, y);
+      const halfSize = 6.5;
+      ctx.moveTo(x, y - halfSize);
+      ctx.lineTo(x + halfSize, y);
+      ctx.lineTo(x, y + halfSize);
+      ctx.lineTo(x - halfSize, y);
       ctx.closePath();
       ctx.strokeStyle = cyan;
       ctx.stroke();
@@ -155,6 +231,7 @@ export function createHud(canvas) {
     ctx.save();
     ctx.translate(cx + dx * scale, cy + dy * scale);
     ctx.rotate(Math.atan2(dy, dx));
+    ctx.scale(0.8, 0.8);
     ctx.beginPath();
     ctx.moveTo(9, 0);
     ctx.lineTo(-7, -6);
@@ -178,11 +255,23 @@ export function createHud(canvas) {
     const margin = compact ? 9 : 20;
     const panelWidth = compact ? Math.min(170, width / 2 - margin * 1.5) : 207;
     const size = compact ? 18 : 26;
-    panel(margin, margin, panelWidth, 80);
+    const leftEdge = margin + 10;
+    const rightEdge = margin + panelWidth - 10;
+    panel(margin, margin, panelWidth, 118);
     readout('ALT', `${numberFormat.format(Math.max(0, position.y) * HUD.feetPerMetre)} FT`,
-      margin + 10, margin + 22, margin + panelWidth - 10, amber, size);
+      leftEdge, margin + 19, rightEdge, amber, size);
     readout('SPD', `${numberFormat.format(flight.speed * HUD.knotsPerMetreSecond)} KT`,
-      margin + 10, margin + 57, margin + panelWidth - 10, cyan, size);
+      leftEdge, margin + 46, rightEdge, cyan, size);
+    const throttle = THREE.MathUtils.clamp(flight.throttle, 0, 1);
+    readout('THR', `${Math.round(throttle * 100)}%`, leftEdge, margin + 73, rightEdge, cyan, size);
+    const barWidth = rightEdge - leftEdge;
+    ctx.fillStyle = HUD.border;
+    ctx.fillRect(leftEdge, margin + 87, barWidth, 5);
+    ctx.fillStyle = cyan;
+    ctx.fillRect(leftEdge, margin + 87, barWidth * throttle, 5);
+    if (flight.stallWarn) {
+      text('STALL', leftEdge, margin + 105, '#ff5a4a', 11, 'left', true);
+    }
 
     const right = width - margin - panelWidth;
     panel(right, margin, panelWidth, 105);
@@ -191,7 +280,7 @@ export function createHud(canvas) {
     const rings = course.state.ringsPassed;
     readout('RINGS', rings === COURSE.ringCount ? 'LAND' : `${rings}/${COURSE.ringCount}`,
       right + 10, margin + 84, width - margin - 10, amber, size);
-    compass(flight.heading, compact ? margin + 112 : margin, Math.min(HUD.compassWidth, compact ? width - 2 * margin : width - 465));
+    compass(flight.heading, compact ? margin + 125 : margin, Math.min(HUD.compassWidth, compact ? width - 2 * margin : width - 465));
 
     const x = width / 2;
     const y = height / 2;
@@ -201,6 +290,8 @@ export function createHud(canvas) {
     line(x, y + 3, x, y + 7, amber);
     drawTarget(course.target, camera, position);
     attitude(flight, width * 0.37, height - (compact ? 74 : 88), compact ? 33 : 43);
+    const radarRadius = compact ? 52 : 70;
+    radar(flight, course, position, width - margin - radarRadius, height - margin - radarRadius, radarRadius);
 
     if (screen === 'paused') {
       ctx.fillStyle = HUD.shade;
@@ -208,7 +299,7 @@ export function createHud(canvas) {
       panel(x - 125, y - 37, 250, 74);
       text('PAUSED', x, y - 10, amber, 24, 'center');
       text('P / ESC TO RESUME', x, y + 17, cyan, 12, 'center');
-    } else {
+    } else if (!staged && (flight.grounded || course.state.elapsed < 4)) {
       const controls = compact ? '↑↓ Pitch   ←→ Roll   W/S Throttle   P Pause'
         : '↑ / ↓ Pitch    ← / → or A / D Roll    W / S Throttle    P Pause';
       const hint = flight.grounded ? 'Hold W to accelerate, then ↑ to lift off' : controls;
@@ -216,5 +307,5 @@ export function createHud(canvas) {
     }
   }
 
-  return { draw };
+  return { draw, setStaged };
 }

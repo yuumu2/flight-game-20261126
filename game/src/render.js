@@ -1,6 +1,6 @@
 // Configures WebGL and positions the chase or screenshot camera.
 import * as THREE from 'three';
-import { VIEW } from './config.js';
+import { STALL, VIEW } from './config.js';
 
 export function createRenderer(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -9,9 +9,11 @@ export function createRenderer(canvas) {
   const camera = new THREE.PerspectiveCamera(VIEW.fov, 1, VIEW.near, VIEW.far);
   const direction = new THREE.Vector3();
   const desired = new THREE.Vector3();
+  const chasePosition = new THREE.Vector3();
   const target = new THREE.Vector3();
   const worldUp = new THREE.Vector3(0, 1, 0);
   let chaseActive = false;
+  let buffetClock = 0;
 
   function resize() {
     const width = window.innerWidth;
@@ -30,11 +32,20 @@ export function createRenderer(canvas) {
       -Math.cos(flight.heading) * Math.cos(pitch));
     desired.copy(flight.position).addScaledVector(direction, -VIEW.chaseBack);
     desired.y += VIEW.chaseUp;
-    if (chaseActive && !snap) camera.position.lerp(desired, 1 - Math.exp(-VIEW.chaseDamping * dt));
-    else camera.position.copy(desired);
+    if (chaseActive && !snap) chasePosition.lerp(desired, 1 - Math.exp(-VIEW.chaseDamping * dt));
+    else chasePosition.copy(desired);
     chaseActive = true;
+    buffetClock += dt;
+    camera.position.copy(chasePosition);
+    if (flight.stall > 0) {
+      const lateral = Math.sin(buffetClock * STALL.buffetLateralRate) * STALL.buffetLateral * flight.stall;
+      camera.position.x += Math.cos(flight.heading) * lateral;
+      camera.position.z += Math.sin(flight.heading) * lateral;
+      camera.position.y += Math.sin(buffetClock * STALL.buffetVerticalRate) * STALL.buffetVertical * flight.stall;
+    }
     target.copy(flight.position).addScaledVector(direction, VIEW.chaseLook);
-    camera.up.copy(worldUp).applyAxisAngle(direction, flight.roll * VIEW.chaseBank);
+    const buffetRoll = Math.sin(buffetClock * STALL.buffetRollRate) * STALL.buffetRoll * flight.stall;
+    camera.up.copy(worldUp).applyAxisAngle(direction, flight.roll * VIEW.chaseBank + buffetRoll);
     camera.lookAt(target);
   }
 

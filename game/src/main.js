@@ -137,6 +137,8 @@ function frame(now) {
 
 if (shot !== null) {
   window.__shotReady = false;
+  hud.setStaged(true);
+  if (shot === 'finish') result.classList.add('shot-side');
   const staged = stageShot(shot, { scene, flight, course, renderer: view });
   if (staged.screen === 'over') showResult(true);
   else show(staged.screen);

@@ -1,6 +1,6 @@
 // Builds the mail seaplane and updates its flight and touchdown state.
 import * as THREE from 'three';
-import { AIRCRAFT, PALETTE } from './config.js';
+import { AIRCRAFT, PALETTE, STALL } from './config.js';
 import { isOnRunway } from './world.js';
 
 export function buildSeaplane() {
@@ -67,6 +67,11 @@ export function buildSeaplane() {
   const spinner = add(propeller, new THREE.ConeGeometry(0.17, 0.3, 12), red, 0, 0, -0.1);
   spinner.rotation.x = -Math.PI / 2;
   group.add(propeller);
+  const blurMaterial = new THREE.MeshBasicMaterial({
+    color: 0xf3e9d2, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const blurDisc = add(group, new THREE.CircleGeometry(0.88, 32), blurMaterial, 0, 0, -1.88);
+  blurDisc.name = 'Propeller blur disc';
 
   return {
     group,
@@ -84,8 +89,10 @@ export function createFlight() {
     heading: 0, pitch: 0, roll: 0,
     speed: AIRCRAFT.minSpeed, throttle: AIRCRAFT.initialThrottle,
     verticalSpeed: 0, grounded: false, crashed: false, landed: false,
+    aoa: 0, stall: 0, stallWarn: false,
   };
   const velocity = new THREE.Vector3();
+  const desiredVelocity = new THREE.Vector3();
 
   // Heading increases toward +X from -Z. Positive pitch climbs and positive roll banks right.
   function forwardVector(target = new THREE.Vector3()) {
@@ -105,7 +112,11 @@ export function createFlight() {
     state.grounded = parked;
     state.throttle = parked ? 0 : AIRCRAFT.initialThrottle;
     state.speed = parked ? 0 : THREE.MathUtils.lerp(AIRCRAFT.minSpeed, AIRCRAFT.maxSpeed, state.throttle);
+    forwardVector(velocity).multiplyScalar(state.speed);
     state.verticalSpeed = 0;
+    state.aoa = 0;
+    state.stall = 0;
+    state.stallWarn = false;
     state.crashed = false;
     state.landed = false;
   }
@@ -115,11 +126,23 @@ export function createFlight() {
     const pitch = input.pitchInput();
     const roll = state.grounded ? 0 : input.rollInput();
     state.throttle = THREE.MathUtils.clamp(state.throttle + input.throttleInput() * AIRCRAFT.throttleRate * dt, 0, 1);
-    const canPitch = !state.grounded || state.speed >= AIRCRAFT.takeoffSpeed;
-    state.pitch = THREE.MathUtils.damp(state.pitch, canPitch ? pitch * AIRCRAFT.maxPitch : 0,
-      pitch ? AIRCRAFT.pitchRate : AIRCRAFT.autoLevelPitch, dt);
     state.roll = THREE.MathUtils.damp(state.roll, roll * AIRCRAFT.maxRoll,
       roll ? AIRCRAFT.rollRate : AIRCRAFT.autoLevelRoll, dt);
+    const gamma = Math.asin(THREE.MathUtils.clamp(velocity.y / Math.max(velocity.length(), 1), -1, 1));
+    const bankLift = Math.cos(Math.abs(state.roll));
+    const load = Math.min(STALL.loadLimit, 1 / bankLift);
+    const criticalAngle = STALL.aoaCrit - STALL.loadPenalty * (load - 1);
+    const warningAngle = criticalAngle - (STALL.aoaCrit - STALL.aoaWarn);
+    state.aoa = state.grounded ? 0 : state.pitch - gamma;
+    state.stall = state.grounded ? 0 : THREE.MathUtils.clamp((state.aoa - warningAngle) / STALL.fadeBand, 0, 1);
+    state.stallWarn = state.stall > 0;
+
+    const canPitch = !state.grounded || state.speed >= AIRCRAFT.takeoffSpeed;
+    const pitchRate = (pitch ? AIRCRAFT.pitchRate : AIRCRAFT.autoLevelPitch)
+      * (1 - STALL.pitchAuthorityLoss * state.stall);
+    state.pitch = THREE.MathUtils.damp(state.pitch, canPitch ? pitch * AIRCRAFT.maxPitch : 0,
+      pitchRate, dt);
+    state.pitch -= state.stall * STALL.noseDropRate * dt;
 
     const throttleSpeed = THREE.MathUtils.lerp(AIRCRAFT.minSpeed, AIRCRAFT.maxSpeed, state.throttle);
     const targetSpeed = state.grounded
@@ -130,8 +153,19 @@ export function createFlight() {
     state.heading += Math.sin(state.roll) * AIRCRAFT.turnFactor
       * state.speed / AIRCRAFT.turnReferenceSpeed * dt;
 
-    forwardVector(velocity).multiplyScalar(state.speed);
-    velocity.y -= Math.max(0, AIRCRAFT.stallSpeed - state.speed) * AIRCRAFT.stallSink;
+    forwardVector(desiredVelocity).multiplyScalar(state.speed);
+    if (state.grounded) {
+      velocity.copy(desiredVelocity);
+    } else {
+      // At low airspeed the flight path takes longer to follow a pitch change.
+      const airflow = THREE.MathUtils.smoothstep(state.speed, STALL.liftSpeedLow, STALL.liftSpeedFull);
+      const authority = THREE.MathUtils.lerp(STALL.liftAuthorityLow, 1, airflow);
+      const response = THREE.MathUtils.lerp(STALL.liftResponse, STALL.liftResponseStalled, state.stall);
+      const vertical = THREE.MathUtils.damp(velocity.y, desiredVelocity.y, response * authority, dt);
+      velocity.lerp(desiredVelocity, 1 - Math.exp(-response * dt));
+      velocity.y = vertical - state.stall * STALL.sinkRate * dt;
+      velocity.y -= (1 - bankLift) * 9.8 * STALL.bankSinkScale * dt;
+    }
     if (state.grounded && velocity.y > 0) state.grounded = false;
     if (state.grounded) velocity.y = 0;
     state.verticalSpeed = velocity.y;
