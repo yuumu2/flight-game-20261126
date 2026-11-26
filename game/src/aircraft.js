@@ -3,9 +3,7 @@ import * as THREE from 'three';
 import { AIRCRAFT, PALETTE, STALL } from './config.js';
 import { isOnRunway, isOnWaterLane, WORLD } from './world.js';
 
-export function buildSeaplane() {
-  const group = new THREE.Group();
-  group.name = 'Duskmail seaplane';
+function aircraftMaterials() {
   const cream = new THREE.MeshStandardMaterial({ color: PALETTE.mailCream, roughness: 0.42 });
   const red = new THREE.MeshStandardMaterial({ color: PALETTE.mailRed, roughness: 0.4 });
   const metal = new THREE.MeshStandardMaterial({ color: PALETTE.metal, metalness: 0.45, roughness: 0.38 });
@@ -13,6 +11,20 @@ export function buildSeaplane() {
     color: '#172834', metalness: 0.12, roughness: 0.23, clearcoat: 0.85, clearcoatRoughness: 0.16,
   });
   const livery = new THREE.MeshStandardMaterial({ color: '#c58443', roughness: 0.46 });
+  function navLight(color) {
+    return new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 2.4 });
+  }
+  return {
+    cream, red, metal, glass, livery,
+    navPort: navLight(PALETTE.navPort),
+    navStarboard: navLight(PALETTE.navStarboard),
+    navTail: navLight(PALETTE.navTail),
+  };
+}
+
+function buildPrimitiveSeaplane(materials) {
+  const group = new THREE.Group();
+  const { cream, red, metal, glass, livery } = materials;
 
   function add(parent, geometry, material, x, y, z) {
     const part = new THREE.Mesh(geometry, material);
@@ -38,11 +50,6 @@ export function buildSeaplane() {
   const floatBody = new THREE.CapsuleGeometry(0.26, 2.26, 5, 10);
   const strut = new THREE.BoxGeometry(0.1, 0.63, 0.13);
   const navBulb = new THREE.SphereGeometry(0.085, 10, 8);
-
-  function navLight(color, x, y, z) {
-    const material = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 2.4 });
-    add(group, navBulb, material, x, y, z);
-  }
 
   function wingBrace(side, z) {
     const start = new THREE.Vector3(side * 0.92, -0.65, z);
@@ -71,7 +78,7 @@ export function buildSeaplane() {
     }
     wingBrace(side, -0.44);
     wingBrace(side, 0.14);
-    navLight(side < 0 ? PALETTE.navPort : PALETTE.navStarboard, side * 2.91, 0.38, -0.16);
+    add(group, navBulb, side < 0 ? materials.navPort : materials.navStarboard, side * 2.91, 0.38, -0.16);
   }
 
   add(group, new THREE.BoxGeometry(1.85, 0.11, 0.57), cream, 0, 0.14, 1.37);
@@ -83,7 +90,7 @@ export function buildSeaplane() {
   antenna.rotation.x = 0.22;
   const exhaust = add(group, new THREE.CylinderGeometry(0.048, 0.063, 0.27, 8), metal, 0.43, -0.22, -1.03);
   exhaust.rotation.x = Math.PI / 2;
-  navLight(PALETTE.navTail, 0, 0.13, 1.73);
+  add(group, navBulb, materials.navTail, 0, 0.13, 1.73);
 
   const propeller = new THREE.Group();
   propeller.position.z = -1.86;
@@ -93,20 +100,54 @@ export function buildSeaplane() {
   const spinner = add(propeller, new THREE.ConeGeometry(0.17, 0.3, 12), red, 0, 0, -0.1);
   spinner.rotation.x = -Math.PI / 2;
   group.add(propeller);
+  addPropellerBlur(group);
+  return { group, propeller };
+}
+
+function addPropellerBlur(group) {
   const blurMaterial = new THREE.MeshBasicMaterial({
     color: 0xf3e9d2, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false,
   });
-  const blurDisc = add(group, new THREE.CircleGeometry(0.88, 32), blurMaterial, 0, 0, -1.88);
+  const blurDisc = new THREE.Mesh(new THREE.CircleGeometry(0.88, 32), blurMaterial);
+  blurDisc.position.z = -1.88;
   blurDisc.name = 'Propeller blur disc';
+  group.add(blurDisc);
+}
 
-  return {
-    group,
-    propeller,
-    spinPropeller(dt, throttle) {
-      propeller.rotation.z = (propeller.rotation.z
-        + dt * (AIRCRAFT.propellerIdle + throttle * AIRCRAFT.propellerPower)) % (2 * Math.PI);
-    },
-  };
+export async function buildSeaplane() {
+  const materials = aircraftMaterials();
+  const group = new THREE.Group();
+  group.name = 'Duskmail seaplane';
+  let propeller = null;
+  let spinners = [];
+
+  try {
+    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.min.js');
+    const gltf = await new GLTFLoader().loadAsync('./assets/seaplane.glb');
+    gltf.scene.traverse((part) => {
+      if (part.isMesh && Object.hasOwn(materials, part.material.name)) {
+        part.material = materials[part.material.name];
+      }
+      if (part.name === 'Propeller' || part.name === 'PropellerSpinner') spinners.push(part);
+    });
+    if (spinners.length !== 2) throw new Error('Missing seaplane propeller parts');
+    group.add(gltf.scene);
+    addPropellerBlur(group);
+  } catch {
+    const primitive = buildPrimitiveSeaplane(materials);
+    group.add(primitive.group);
+    propeller = primitive.propeller;
+    spinners = [propeller];
+  }
+
+  function spinPropeller(dt, throttle) {
+    const rotation = dt * (AIRCRAFT.propellerIdle + throttle * AIRCRAFT.propellerPower);
+    for (const spinner of spinners) {
+      spinner.rotation.z = (spinner.rotation.z + rotation) % (2 * Math.PI);
+    }
+  }
+
+  return { group, propeller, spinPropeller };
 }
 
 export function createFlight() {

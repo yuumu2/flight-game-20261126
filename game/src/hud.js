@@ -243,6 +243,94 @@ export function createHud(canvas) {
     ctx.restore();
   }
 
+  function objective(course, position, y) {
+    const { nextIndex } = course.state;
+    const distance = Math.round(position.distanceTo(course.target));
+    const task = nextIndex < COURSE.ringCount
+      ? `RING ${nextIndex + 1} OF ${COURSE.ringCount}`
+      : 'LAND ON THE WATER LANE';
+    const message = `OBJECTIVE — ${task} · ${distance} M`;
+    ctx.font = `600 13px ${font}`;
+    const bannerWidth = ctx.measureText(message).width + 36;
+    panel((width - bannerWidth) / 2, y, bannerWidth, 27);
+    text(message, width / 2, y + 13.5, amber, 13, 'center', true);
+  }
+
+  function dialAngle(fraction) {
+    return THREE.MathUtils.degToRad(-135 + 270 * fraction);
+  }
+
+  function gauge(cx, cy, radius, fraction, label, ticks, redStart) {
+    const face = radius * 0.84;
+    const dark = '#26303a';
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = '#0b0f16';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius - 1, 0, Math.PI * 2);
+    ctx.strokeStyle = amber;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, face, 0, Math.PI * 2);
+    ctx.fillStyle = '#f3e9d2';
+    ctx.fill();
+
+    if (redStart !== undefined) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, face * 0.86, dialAngle(redStart) - Math.PI / 2, dialAngle(1) - Math.PI / 2);
+      ctx.strokeStyle = '#c23b31';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    ctx.lineWidth = 1;
+    for (const tick of ticks) {
+      const angle = dialAngle(tick.fraction);
+      const x = Math.sin(angle) * face;
+      const y = -Math.cos(angle) * face;
+      line(cx + x * 0.78, cy + y * 0.78, cx + x * 0.92, cy + y * 0.92, dark);
+      if (tick.label !== null) text(tick.label, cx + x * 0.60, cy + y * 0.60, dark, 8, 'center');
+    }
+
+    const angle = dialAngle(THREE.MathUtils.clamp(fraction, 0, 1));
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    line(cx, cy, cx + Math.sin(angle) * face * 0.74, cy - Math.cos(angle) * face * 0.74, '#d35400');
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * 0.10, 0, Math.PI * 2);
+    ctx.fillStyle = dark;
+    ctx.fill();
+    text(label, cx, cy + radius * 0.42, dark, 8, 'center');
+    ctx.restore();
+  }
+
+  function gaugeTicks(maximum, step, labelStep, labelUnit = 1) {
+    return Array.from({ length: maximum / step + 1 }, (_, i) => {
+      const value = i * step;
+      return { fraction: value / maximum, label: value % labelStep === 0 ? String(value / labelUnit) : null };
+    });
+  }
+
+  const speedTicks = gaugeTicks(160, 20, 40);
+  const altitudeTicks = gaugeTicks(3000, 250, 500, 100);
+  const rpmTicks = gaugeTicks(3000, 500, 1000, 1000);
+
+  function gaugeCluster(flight, position, compact, throttle) {
+    const x = width / 2;
+    const y = height - (compact ? 38 : 50);
+    const radius = compact ? 24 : 33;
+    const spacing = compact ? 54 : 80;
+    const backingWidth = compact ? 3 * spacing + 2 * radius + 16 : 242;
+    const backingHeight = compact ? 2 * radius + 18 : 84;
+    panel(x - backingWidth / 2, compact ? y - backingHeight / 2 : height - 91, backingWidth, backingHeight);
+    gauge(x - spacing, y, radius, flight.speed * HUD.knotsPerMetreSecond / 160, 'SPD KT', speedTicks, 130 / 160);
+    gauge(x, y, radius, Math.max(0, position.y) * HUD.feetPerMetre / 3000, 'ALT FT', altitudeTicks);
+    gauge(x + spacing, y, radius, (600 + throttle * 2100) / 3000, 'RPM', rpmTicks, 2600 / 3000);
+  }
+
   function draw(flight, course, screen, camera, position = flight.position) {
     ctx.clearRect(0, 0, width, height);
     if (screen !== 'play' && screen !== 'paused') {
@@ -281,6 +369,7 @@ export function createHud(canvas) {
     readout('RINGS', rings === COURSE.ringCount ? 'LAND' : `${rings}/${COURSE.ringCount}`,
       right + 10, margin + 84, width - margin - 10, amber, size);
     compass(flight.heading, compact ? margin + 125 : margin, Math.min(HUD.compassWidth, compact ? width - 2 * margin : width - 465));
+    objective(course, position, margin + (compact ? 187 : 62));
 
     const x = width / 2;
     const y = height / 2;
@@ -292,6 +381,7 @@ export function createHud(canvas) {
     attitude(flight, width * 0.37, height - (compact ? 74 : 88), compact ? 33 : 43);
     const radarRadius = compact ? 52 : 70;
     radar(flight, course, position, width - margin - radarRadius, height - margin - radarRadius, radarRadius);
+    gaugeCluster(flight, position, compact, throttle);
 
     if (screen === 'paused') {
       ctx.fillStyle = HUD.shade;

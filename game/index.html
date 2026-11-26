@@ -34,7 +34,7 @@
     #breakdown dt:nth-last-of-type(-n+2) { font-weight: 700; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   </style>
-  <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
+  <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js","three/addons/":"./vendor/addons/"}}</script>
   <script type="module" src="./src/main.js"></script>
 </head>
 <body>
@@ -43,7 +43,7 @@
   <section id="title-screen" class="overlay" aria-labelledby="title">
     <div class="panel">
       <h1 id="title">DUSKMAIL ATOLL</h1>
-      <p>Golden-hour mail run: fly the ring course around the atoll and land back on the lagoon’s water lane.</p>
+      <p>Mission — the sunset mail run. Thread all 10 glowing gates around the atoll, then set the seaplane down on the lagoon's water lane to deliver the mail. A smooth, on-lane touchdown earns the best score.</p>
       <ul>
         <li>↑ / ↓ to climb or descend</li>
         <li>← / → or A / D to roll</li>
@@ -55,7 +55,7 @@
   </section>
   <section id="result-screen" class="overlay" aria-labelledby="result-title" hidden>
     <div class="panel">
-      <h2 id="result-title">Flight results</h2>
+      <h2 id="result-title">Mail run results</h2>
       <div id="breakdown"></div>
       <button type="button">Press Space or click to fly again</button>
     </div>

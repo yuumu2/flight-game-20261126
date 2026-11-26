@@ -23,7 +23,7 @@ const breakdown = document.querySelector('#breakdown');
 const status = document.querySelector('#status');
 const scene = new THREE.Scene();
 const world = buildWorld(scene, worldSeed);
-const plane = buildSeaplane();
+const plane = await buildSeaplane();
 const flight = createFlight();
 const course = createCourse(scene, world.heightAt, worldSeed);
 const view = createRenderer(document.querySelector('#game'));
@@ -73,7 +73,15 @@ function showResult(staged = false) {
   const landing = flight.state.crashed ? 'Crash'
     : flight.state.touchdownSurface === 'water' ? landingLabel(0)
       : run.ringsPassed < COURSE.ringCount ? 'Course incomplete' : landingLabel(run.landingQuality);
+  const delivery = flight.state.crashed ? 'Lost — aircraft down'
+    : flight.state.touchdownSurface === 'lane' && run.ringsPassed === COURSE.ringCount ? `Delivered — ${landingLabel(run.landingQuality)} landing`
+    : flight.state.touchdownSurface === 'water' ? 'Aboard — set down off the lane'
+    : flight.state.landed ? 'Aboard — down off the lane'
+    : run.finished && run.ringsPassed === COURSE.ringCount && flight.state.touchdownSurface === null
+      ? `Delivered — ${landingLabel(run.landingQuality)} landing`
+    : 'Still aboard — course incomplete';
   const fields = [
+    ['Delivery', delivery],
     ['Rings', `${run.ringsPassed} / ${COURSE.ringCount}`],
     ['Time', formatTime(run.elapsed)],
     ['Landing', landing],
