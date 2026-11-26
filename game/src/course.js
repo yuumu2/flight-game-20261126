@@ -1,8 +1,7 @@
 // Places the gates, detects crossings, and scores the mail run.
 import * as THREE from 'three';
-import { AIRCRAFT, COURSE, PALETTE, WORLD, WORLD_SEED } from './config.js';
-import { createRandom } from './random.js';
-import { runwayCenter, waterlaneCenter, waterlaneHeading } from './world.js';
+import { AIRCRAFT, COURSE, PALETTE, WORLD_SEED } from './config.js';
+import { courseRingPositions, waterlaneCenter, waterlaneHeading } from './world.js';
 
 export function landingLabel(quality) {
   const fraction = quality / COURSE.landingQualityMax;
@@ -17,17 +16,7 @@ export function landingTimeBonus(elapsed) {
 }
 
 export function createCourse(scene, heightAt, seed = WORLD_SEED) {
-  const random = createRandom(seed + COURSE.seedOffset);
-  const interval = 2 * Math.PI / COURSE.ringCount;
-  const startAngle = Math.atan2(runwayCenter.z, runwayCenter.x);
-  const ringPositions = Array.from({ length: COURSE.ringCount }, (_, i) => {
-    const angle = startAngle + (i + 0.85) * interval + (random() - 0.5) * COURSE.angleJitter;
-    const radius = THREE.MathUtils.lerp(COURSE.radialMin, COURSE.radialMax, random()) * WORLD.size / 2;
-    const x = Math.cos(angle) * radius;
-    const z = Math.sin(angle) * radius;
-    const clearance = THREE.MathUtils.lerp(COURSE.clearanceMin, COURSE.clearanceMax, random());
-    return new THREE.Vector3(x, Math.max(heightAt(x, z), WORLD.seaLevel) + clearance, z);
-  });
+  const ringPositions = courseRingPositions(heightAt, seed);
   const geometry = new THREE.TorusGeometry(COURSE.ringRadius, COURSE.ringTube, 12, 48);
   const haloGeometry = new THREE.TorusGeometry(COURSE.ringRadius, COURSE.ringHaloTube, 12, 48);
   const haloMaterial = new THREE.MeshBasicMaterial({
@@ -42,7 +31,9 @@ export function createCourse(scene, heightAt, seed = WORLD_SEED) {
     group.name = `Mail gate ${i + 1}`;
     group.position.copy(position);
     group.quaternion.setFromUnitVectors(forward, normal);
-    const material = new THREE.MeshBasicMaterial({ toneMapped: false, fog: false });
+    const material = new THREE.MeshStandardMaterial({
+      roughness: 0.38, metalness: 0.1, fog: false,
+    });
     const halo = new THREE.Mesh(haloGeometry, haloMaterial);
     group.add(new THREE.Mesh(geometry, material), halo);
     scene.add(group);
@@ -66,7 +57,9 @@ export function createCourse(scene, heightAt, seed = WORLD_SEED) {
       const color = passed ? PALETTE.ringPassed : active ? PALETTE.ringNext : PALETTE.ring;
       const pulse = active ? Math.sin(state.elapsed * 4.2) : 0;
       group.scale.setScalar(1 + pulse * 0.045);
-      material.color.set(color);
+      material.color.set(color).multiplyScalar(0.72);
+      material.emissive.set(color);
+      material.emissiveIntensity = active ? 1.08 + pulse * 0.12 : passed ? 0.55 : 0.72;
       halo.visible = active;
     });
   }

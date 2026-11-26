@@ -38,13 +38,13 @@ export const COURSE = {
   ringCount: 10, ringRadius: 16, ringScore: 100, parTimeSeconds: 300,
   landingBonusPerSecond: 5, landingQualityMax: 500,
   seedOffset: 101, radialMin: 0.55, radialMax: 0.9, angleJitter: 0.15,
-  clearanceMin: 35, clearanceMax: 110, ringTube: 2.0, ringHaloTube: 3.4, ringHaloOpacity: 0.15,
+  clearanceMin: 35, clearanceMax: 110, ringTube: 2.65, ringHaloTube: 3.65, ringHaloOpacity: 0.09,
   landingIdealSpeed: 26, landingSpeedRange: 16, landingAlignment: Math.PI / 4,
 };
 export const PALETTE = {
-  skyZenith: '#2e3d6e', skyMid: '#7a4a63', horizon: '#ff9e4a',
+  skyZenith: '#434c75', skyMid: '#885870', horizon: '#ee8949',
   sun: '#ffb36b', fog: '#f2a05e', sea: '#1d6a80', seaEmissive: '#07293a', sand: '#dcbd82',
-  grassLow: '#69a24e', grassHigh: '#8fae56', rock: '#777c74', rockWarm: '#8d7f70', snow: '#f4efe6',
+  grassLow: '#6c8955', grassHigh: '#a99a60', rock: '#777c74', rockWarm: '#8d7f70', snow: '#f4efe6',
   ring: '#ff9e4a', ringNext: '#ffc46b', ringPassed: '#57e6a3',
   hudAmber: '#ffc46b', hudCyan: '#7fe7ff',
   asphalt: '#43484f', centerline: '#fffcf5', chalk: '#fff3d8', edgeLight: '#ffe5a5', windsock: '#ff782f',
@@ -55,12 +55,12 @@ export const PALETTE = {
   navPort: '#ff3546', navStarboard: '#55ff8c', navTail: '#ffffff',
 };
 export const SCENERY = {
-  rockCount: 170, rockAttempts: 6000, rockMinHeight: -1.5, rockMaxHeight: 46, rockMinSlope: 0.5,
-  houseCount: 5, cloudCount: 8,
+  rockCount: 520, rockAttempts: 16000, rockMinHeight: -1.5, rockMaxHeight: 46, rockMinSlope: 0.5,
+  houseCount: 9, cloudCount: 8,
   radius: 12000, fogNear: 1200, fogFar: 8500, sunElevation: 12, sunAzimuth: 238,
   sunlight: 1.6, ambient: 0.85, seaRoughness: 0.2,
   runwayLift: 0.15, dashSpacing: 24, dashLength: 12, dashWidth: 2, lightSpacing: 34,
-  treeCount: 350, treeAttempts: 10000, treeMinHeight: 11, treeMaxHeight: 74, treeMaxSlope: 0.44,
+  treeCount: 980, palmCount: 280, treeAttempts: 10000, treeMinHeight: 11, treeMaxHeight: 74, treeMaxSlope: 0.44,
   treeRunwayBuffer: 125, treeMinSize: 5, treeSizeRange: 11,
   coastSearch: 460, coastStep: 12, coastRunwayBuffer: 60,
 };

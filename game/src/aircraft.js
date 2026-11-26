@@ -9,7 +9,10 @@ export function buildSeaplane() {
   const cream = new THREE.MeshStandardMaterial({ color: PALETTE.mailCream, roughness: 0.42 });
   const red = new THREE.MeshStandardMaterial({ color: PALETTE.mailRed, roughness: 0.4 });
   const metal = new THREE.MeshStandardMaterial({ color: PALETTE.metal, metalness: 0.45, roughness: 0.38 });
-  const glass = new THREE.MeshStandardMaterial({ color: PALETTE.canopy, metalness: 0.3, roughness: 0.14 });
+  const glass = new THREE.MeshPhysicalMaterial({
+    color: '#172834', metalness: 0.12, roughness: 0.23, clearcoat: 0.85, clearcoatRoughness: 0.16,
+  });
+  const livery = new THREE.MeshStandardMaterial({ color: '#c58443', roughness: 0.46 });
 
   function add(parent, geometry, material, x, y, z) {
     const part = new THREE.Mesh(geometry, material);
@@ -20,6 +23,11 @@ export function buildSeaplane() {
 
   const fuselage = add(group, new THREE.CapsuleGeometry(0.5, 2.55, 6, 12), cream, 0, 0, 0);
   fuselage.rotation.x = Math.PI / 2;
+  for (const angle of [Math.PI / 2, Math.PI * 1.5]) {
+    const stripe = new THREE.CylinderGeometry(0.503, 0.503, 2.54, 6, 1, true, angle - 0.19, 0.38);
+    stripe.rotateX(Math.PI / 2);
+    add(group, stripe, livery, 0, 0, 0);
+  }
   const cowl = add(group, new THREE.CylinderGeometry(0.43, 0.49, 0.56, 16), red, 0, 0, -1.48);
   cowl.rotation.x = -Math.PI / 2;
   const canopy = add(group, new THREE.SphereGeometry(1, 16, 10), glass, 0, 0.36, -0.43);
@@ -34,6 +42,16 @@ export function buildSeaplane() {
   function navLight(color, x, y, z) {
     const material = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 2.4 });
     add(group, navBulb, material, x, y, z);
+  }
+
+  function wingBrace(side, z) {
+    const start = new THREE.Vector3(side * 0.92, -0.65, z);
+    const end = new THREE.Vector3(side * 1.95, 0.24, z - 0.06);
+    const length = start.distanceTo(end);
+    const middle = start.clone().lerp(end, 0.5);
+    const brace = add(group, new THREE.CylinderGeometry(0.035, 0.042, length, 6),
+      metal, middle.x, middle.y, middle.z);
+    brace.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), end.sub(start).normalize());
   }
 
   for (const side of [-1, 1]) {
@@ -51,12 +69,20 @@ export function buildSeaplane() {
       const support = add(group, strut, metal, side * 0.78, -0.39, z);
       support.rotation.z = side * 0.36;
     }
+    wingBrace(side, -0.44);
+    wingBrace(side, 0.14);
     navLight(side < 0 ? PALETTE.navPort : PALETTE.navStarboard, side * 2.91, 0.38, -0.16);
   }
 
   add(group, new THREE.BoxGeometry(1.85, 0.11, 0.57), cream, 0, 0.14, 1.37);
   const fin = add(group, new THREE.BoxGeometry(0.105, 0.73, 0.48), red, 0, 0.37, 1.4);
   fin.rotation.x = 0.27;
+  add(fin, new THREE.BoxGeometry(0.108, 0.12, 0.483), cream, 0, 0.165, 0);
+  add(fin, new THREE.BoxGeometry(0.109, 0.048, 0.483), livery, 0, 0.08, 0);
+  const antenna = add(group, new THREE.CylinderGeometry(0.012, 0.022, 0.35, 6), metal, 0, 0.63, 0.38);
+  antenna.rotation.x = 0.22;
+  const exhaust = add(group, new THREE.CylinderGeometry(0.048, 0.063, 0.27, 8), metal, 0.43, -0.22, -1.03);
+  exhaust.rotation.x = Math.PI / 2;
   navLight(PALETTE.navTail, 0, 0.13, 1.73);
 
   const propeller = new THREE.Group();

@@ -1,7 +1,7 @@
 // Generates the shared elevation grid and builds the atoll scenery.
 import * as THREE from 'three';
-import { PALETTE, RUNWAY, SCENERY, TERRAIN, WATERLANE, WORLD, WORLD_SEED } from './config.js';
-import { createRandom, fbm, smoothstep } from './random.js';
+import { COURSE, PALETTE, RUNWAY, SCENERY, TERRAIN, WATERLANE, WORLD, WORLD_SEED } from './config.js';
+import { createRandom, fbm, smoothstep, valueNoise } from './random.js';
 
 const half = WORLD.size / 2;
 const last = WORLD.grid - 1;
@@ -20,6 +20,20 @@ export const waterlaneCenter = new THREE.Vector3(WATERLANE.nx * half, WORLD.seaL
 export const waterlaneTangent = new THREE.Vector3(WATERLANE.nz, 0, -WATERLANE.nx).normalize();
 export const waterlaneHeading = Math.atan2(waterlaneTangent.x, -waterlaneTangent.z);
 export { WORLD };
+
+export function courseRingPositions(heightAt, seed = WORLD_SEED) {
+  const random = createRandom(seed + COURSE.seedOffset);
+  const interval = 2 * Math.PI / COURSE.ringCount;
+  const startAngle = Math.atan2(runwayCenter.z, runwayCenter.x);
+  return Array.from({ length: COURSE.ringCount }, (_, i) => {
+    const angle = startAngle + (i + 0.85) * interval + (random() - 0.5) * COURSE.angleJitter;
+    const radius = THREE.MathUtils.lerp(COURSE.radialMin, COURSE.radialMax, random()) * WORLD.size / 2;
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    const clearance = THREE.MathUtils.lerp(COURSE.clearanceMin, COURSE.clearanceMax, random());
+    return new THREE.Vector3(x, Math.max(heightAt(x, z), WORLD.seaLevel) + clearance, z);
+  });
+}
 
 export function isOnWaterLane(x, z, margin = 0) {
   const dx = x - waterlaneCenter.x;
@@ -116,7 +130,7 @@ function addSkyAndSea(scene) {
       vertexShader: `
         varying vec3 vDirection;
         void main() {
-          vDirection = position;
+          vDirection = position - cameraPosition;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
@@ -126,12 +140,13 @@ function addSkyAndSea(scene) {
         void main() {
           vec3 direction = normalize(vDirection);
           float altitude = max(direction.y, 0.0);
-          vec3 color = mix(horizon, mid, smoothstep(0.0, 0.42, altitude));
-          color = mix(color, zenith, smoothstep(0.27, 1.0, altitude));
+          vec3 color = mix(horizon, mid, smoothstep(0.015, 0.30, altitude));
+          color = mix(color, zenith, smoothstep(0.18, 0.92, altitude));
           float towardSun = max(dot(direction, sunDirection), 0.0);
-          color = mix(color, sun, 0.60 * pow(towardSun, 10.0));
-          color += sun * (0.25 * pow(towardSun, 110.0)
-            + 1.5 * smoothstep(0.99970, 0.99985, towardSun));
+          color = mix(color, sun, 0.50 * pow(towardSun, 12.0));
+          float aureole = 0.45 * pow(towardSun, 105.0) + 0.62 * pow(towardSun, 680.0);
+          float disc = smoothstep(0.99964, 0.99973, towardSun);
+          color += sun * aureole + vec3(3.6, 2.22, 1.1) * disc;
           gl_FragColor = vec4(color, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -166,22 +181,35 @@ function slopeAt(sample, x, z) {
   ) / (2 * spacing);
 }
 
-function addTerrain(scene, grid) {
+function addTerrain(scene, grid, seed) {
   const geometry = new THREE.PlaneGeometry(WORLD.size, WORLD.size, last, last);
   geometry.rotateX(-Math.PI / 2);
   const positions = geometry.getAttribute('position');
   const colors = new Float32Array(positions.count * 3);
   const lowGrass = new THREE.Color(PALETTE.grassLow);
   const highGrass = new THREE.Color(PALETTE.grassHigh);
+  const rock = new THREE.Color(PALETTE.rock);
+  const warmRock = new THREE.Color(PALETTE.rockWarm);
   const color = new THREE.Color();
+  const stone = new THREE.Color();
+  for (let i = 0; i < positions.count; i++) positions.setY(i, grid[i]);
+  geometry.computeVertexNormals();
+  const normals = geometry.getAttribute('normal');
   for (let i = 0; i < positions.count; i++) {
+    const x = positions.getX(i);
+    const z = positions.getZ(i);
     const y = grid[i];
-    positions.setY(i, y);
-    color.copy(lowGrass).lerp(highGrass, smoothstep(TERRAIN.sandEnd, TERRAIN.grassHigh, y));
+    const broad = valueNoise(x / 175, z / 175, seed + 117);
+    const detail = valueNoise(x / 46, z / 46, seed + 118);
+    const dryness = smoothstep(18, 76, y + (broad - 0.5) * 48);
+    const steepness = 1 - normals.getY(i);
+    const exposed = Math.max(smoothstep(0.07, 0.34, steepness), smoothstep(73, 115, y));
+    stone.copy(rock).lerp(warmRock, broad);
+    color.copy(lowGrass).lerp(highGrass, dryness).lerp(stone, exposed)
+      .multiplyScalar(0.89 + broad * 0.16 + detail * 0.10);
     color.toArray(colors, i * 3);
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geometry.computeVertexNormals();
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.biomeFoam = { value: new THREE.Color(PALETTE.foam) };
@@ -211,7 +239,8 @@ function addTerrain(scene, grid) {
       } else if (vTerrainElevation <= ${TERRAIN.sandEnd.toFixed(1)}) {
         diffuseColor.rgb = biomeSand;
       } else if (upNormal < ${TERRAIN.steepNormalY}) {
-        diffuseColor.rgb = vTerrainElevation > ${TERRAIN.warmRockStart.toFixed(1)} ? biomeWarmRock : biomeRock;
+        diffuseColor.rgb = mix(diffuseColor.rgb,
+          vTerrainElevation > ${TERRAIN.warmRockStart.toFixed(1)} ? biomeWarmRock : biomeRock, 0.8);
       }
     `);
   };
@@ -308,7 +337,7 @@ function addWaterLane(scene, seed) {
   scene.add(lane);
 }
 
-function addTrees(scene, sample, random) {
+function addTrees(scene, sample, random, excluded) {
   const trees = new THREE.InstancedMesh(
     new THREE.ConeGeometry(1, 1, 6),
     new THREE.MeshStandardMaterial({ flatShading: true, roughness: 1 }),
@@ -324,15 +353,13 @@ function addTrees(scene, sample, random) {
     const x = (random() - 0.5) * WORLD.size;
     const z = (random() - 0.5) * WORLD.size;
     const y = sample(x, z);
-    const dx = x - centerX;
-    const dz = z - centerZ;
     if (y < SCENERY.treeMinHeight || y > SCENERY.treeMaxHeight || slopeAt(sample, x, z) > SCENERY.treeMaxSlope) continue;
-    if (Math.abs(localRunwayX(dx, dz)) < halfLength + SCENERY.treeRunwayBuffer
-        && Math.abs(localRunwayZ(dx, dz)) < halfWidth + SCENERY.treeRunwayBuffer) continue;
+    if (excluded(x, z, SCENERY.treeRunwayBuffer)) continue;
     const size = SCENERY.treeMinSize + random() * SCENERY.treeSizeRange;
     tree.position.set(x, y + size * 0.43, z);
-    tree.scale.set(size * 0.33, size, size * 0.33);
-    tree.rotation.y = random() * Math.PI * 2;
+    const angle = random() * Math.PI * 2;
+    tree.scale.set(size * (0.23 + 0.14 * Math.cos(angle) ** 2), size, size * 0.29);
+    tree.rotation.set(Math.sin(angle) * 0.10, angle, Math.cos(angle) * 0.08);
     tree.updateMatrix();
     trees.setMatrixAt(count, tree.matrix);
     trees.setColorAt(count, color.copy(shade).lerp(sun, random()));
@@ -349,7 +376,65 @@ function isNearRunway(x, z, margin) {
     && Math.abs(localRunwayZ(dx, dz)) <= halfWidth + margin;
 }
 
-function addRocks(scene, sample, random) {
+function addPalms(scene, sample, random, excluded) {
+  const trunk = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.12, 0.23, 1, 5),
+    new THREE.MeshStandardMaterial({ color: PALETTE.rockWarm, flatShading: true }),
+    SCENERY.palmCount,
+  );
+  const leaves = [];
+  for (let i = 0; i < 7; i++) {
+    const angle = i / 7 * Math.PI * 2;
+    const x = Math.cos(angle);
+    const z = Math.sin(angle);
+    const mid = [x * 1.45, 0.38, z * 1.45];
+    const edgeA = [mid[0] - z * 0.37, 0.04, mid[2] + x * 0.37];
+    const edgeB = [mid[0] + z * 0.37, 0.04, mid[2] - x * 0.37];
+    const root = [0, 0, 0];
+    const tip = [x * 2.65, -0.62, z * 2.65];
+    leaves.push(...root, ...edgeA, ...mid, ...root, ...mid, ...edgeB,
+      ...mid, ...edgeA, ...tip, ...mid, ...tip, ...edgeB);
+  }
+  const fronds = new THREE.BufferGeometry();
+  fronds.setAttribute('position', new THREE.Float32BufferAttribute(leaves, 3));
+  fronds.computeVertexNormals();
+  const crowns = new THREE.InstancedMesh(fronds, new THREE.MeshStandardMaterial({
+    side: THREE.DoubleSide, roughness: 0.92, flatShading: true,
+  }), SCENERY.palmCount);
+  trunk.name = 'Palm trunks';
+  crowns.name = 'Palm crowns';
+  const transform = new THREE.Object3D();
+  const shade = new THREE.Color(PALETTE.tree);
+  const gold = new THREE.Color(PALETTE.treeSun);
+  const color = new THREE.Color();
+  let count = 0;
+  for (let attempt = 0; attempt < SCENERY.treeAttempts && count < SCENERY.palmCount; attempt++) {
+    const x = (random() - 0.5) * WORLD.size;
+    const z = (random() - 0.5) * WORLD.size;
+    const y = sample(x, z);
+    if (y < 4.5 || y > 25 || slopeAt(sample, x, z) > 0.27 || excluded(x, z, 48)) continue;
+    const height = 4 + random() * 7;
+    const crownSize = 0.8 + random() * 0.55;
+    const heading = random() * Math.PI * 2;
+    const lean = (random() - 0.5) * 0.32;
+    transform.position.set(x, y + height / 2 - 0.24, z);
+    transform.rotation.set(0, heading, lean, 'YXZ');
+    transform.scale.set(crownSize, height, crownSize);
+    transform.updateMatrix();
+    trunk.setMatrixAt(count, transform.matrix);
+    const top = new THREE.Vector3(0, 0.5, 0).applyMatrix4(transform.matrix);
+    transform.position.copy(top);
+    transform.scale.set(crownSize, crownSize, crownSize);
+    transform.updateMatrix();
+    crowns.setMatrixAt(count, transform.matrix);
+    crowns.setColorAt(count, color.copy(shade).lerp(gold, random()));
+    count++;
+  }
+  trunk.count = crowns.count = count;
+  scene.add(trunk, crowns);
+}
+
+function addRocks(scene, sample, random, excluded) {
   const rocks = new THREE.InstancedMesh(
     new THREE.DodecahedronGeometry(1, 0),
     new THREE.MeshStandardMaterial({ flatShading: true, roughness: 1 }),
@@ -367,10 +452,11 @@ function addRocks(scene, sample, random) {
     const y = sample(x, z);
     const onShore = y >= SCENERY.rockMinHeight && y <= 2.5;
     const onSlope = y >= 0.5 && y <= SCENERY.rockMaxHeight && slopeAt(sample, x, z) > SCENERY.rockMinSlope;
-    if ((!onShore && !onSlope) || isNearRunway(x, z, 40) || isOnWaterLane(x, z, 16)) continue;
+    if ((!onShore && !onSlope) || excluded(x, z, 40)) continue;
     const size = 0.8 + random() * 2.6;
     rock.position.set(x, y + size * 0.25, z);
-    rock.scale.set(size, size * (0.65 + random() * 0.2), size);
+    const squash = random();
+    rock.scale.set(size * (0.82 + squash * 0.28), size * (0.55 + squash * 0.31), size);
     rock.rotation.set((random() - 0.5) * 0.6, random() * Math.PI * 2, (random() - 0.5) * 0.6);
     rock.updateMatrix();
     rocks.setMatrixAt(count, rock.matrix);
@@ -405,6 +491,7 @@ function addStations(scene, sample) {
     group.add(station);
   }
   scene.add(group);
+  return group;
 }
 
 function addHouses(scene, sample, random) {
@@ -412,7 +499,7 @@ function addHouses(scene, sample, random) {
   village.name = 'Village houses';
   const wallColor = new THREE.Color(PALETTE.house);
   const wallTint = new THREE.Color('#d9b77c');
-  const roofs = ['#873e39', '#5d6e8c', '#a8642f', '#4f7a5a', '#77628f'].map(
+  const roofs = ['#873e39', '#5d6e8c', '#a8642f', '#4f7a5a', '#77628f', '#80554a', '#bd8355'].map(
     (color) => new THREE.MeshStandardMaterial({ color }),
   );
   const doorway = new THREE.BoxGeometry(1.55, 2.45, 0.18);
@@ -426,9 +513,9 @@ function addHouses(scene, sample, random) {
     if (y <= 3 || slopeAt(sample, x, z) >= 0.25 || isNearRunway(x, z, 30)) continue;
     if (village.children.some((house) => Math.hypot(house.position.x - x, house.position.z - z) < 18)) continue;
 
-    const width = 9 + random() * 4;
-    const height = 5 + random() * 2;
-    const depth = 8 + random() * 2;
+    const width = 8 + random() * 7;
+    const height = 4.6 + random() * 3.5;
+    const depth = 7 + random() * 5;
     const house = new THREE.Group();
     house.position.set(x, y - 0.65, z);
     house.rotation.y = -Math.atan2(tangentZ, tangentX) + (random() - 0.5) * 0.24;
@@ -444,6 +531,7 @@ function addHouses(scene, sample, random) {
     village.add(house);
   }
   scene.add(village);
+  return village;
 }
 
 function addClouds(scene, random) {
@@ -451,10 +539,10 @@ function addClouds(scene, random) {
   clouds.name = 'Sunset clouds';
   const blob = new THREE.IcosahedronGeometry(1, 0);
   const top = new THREE.MeshLambertMaterial({
-    color: PALETTE.cloud, flatShading: true, emissive: '#6b4030',
+    color: PALETTE.cloud, flatShading: true, emissive: '#795043',
   });
   const shade = new THREE.MeshLambertMaterial({
-    color: PALETTE.cloudShade, flatShading: true, emissive: '#54301f',
+    color: PALETTE.cloudShade, flatShading: true, emissive: '#854729',
   });
   for (let index = 0; index < SCENERY.cloudCount; index++) {
     const cloud = new THREE.Group();
@@ -472,6 +560,49 @@ function addClouds(scene, random) {
     clouds.add(cloud);
   }
   scene.add(clouds);
+}
+
+function addDock(scene, sample, village) {
+  const shore = new THREE.Vector3();
+  const candidate = new THREE.Vector3();
+  const towardWater = new THREE.Vector3(tangentZ, 0, -tangentX);
+  let nearest = 780;
+  for (const house of village.children) {
+    for (let distance = 3; distance < nearest; distance += 3) {
+      candidate.copy(house.position).setY(WORLD.seaLevel).addScaledVector(towardWater, distance);
+      if (sample(candidate.x, candidate.z) > WORLD.seaLevel) continue;
+      if (!isOnWaterLane(candidate.x, candidate.z, 65)) {
+        shore.copy(candidate);
+        nearest = distance;
+      }
+      break;
+    }
+  }
+  if (nearest === 780) return;
+
+  const dock = new THREE.Group();
+  dock.name = 'Village dock and boats';
+  dock.position.copy(shore);
+  dock.rotation.y = -Math.atan2(tangentZ, tangentX);
+  const wood = new THREE.MeshStandardMaterial({ color: '#714f35', roughness: 0.96 });
+  const boards = new THREE.MeshStandardMaterial({ color: '#b3895c', roughness: 0.96 });
+  const plank = new THREE.BoxGeometry(4.2, 0.21, 1.14);
+  const post = new THREE.CylinderGeometry(0.17, 0.23, 2.4, 7);
+  for (let i = 0; i < 20; i++) place(dock, plank, boards, 0, 0.85, 2 - i * 1.2);
+  for (const x of [-1.9, 1.9]) {
+    for (const z of [0, -7, -14, -21]) place(dock, post, wood, x, 0.2, z);
+  }
+  const hull = new THREE.SphereGeometry(1, 8, 4);
+  const bench = new THREE.BoxGeometry(1.5, 0.18, 0.39);
+  for (const [x, z, color] of [[4.2, -12, '#844239'], [-4.2, -19, '#55706b']]) {
+    const boat = new THREE.Group();
+    boat.position.set(x, 0.12, z);
+    const shell = place(boat, hull, new THREE.MeshStandardMaterial({ color, flatShading: true }), 0, 0, 0);
+    shell.scale.set(1.03, 0.46, 2.45);
+    for (const seat of [-0.82, 0.18, 1.05]) place(boat, bench, boards, 0, 0.42, seat);
+    dock.add(boat);
+  }
+  scene.add(dock);
 }
 
 function addLighthouse(scene, sample) {
@@ -522,13 +653,32 @@ export function buildWorld(scene, seed = WORLD_SEED) {
   const sample = (x, z) => sampleGrid(grid, x, z);
   addSkyAndSea(scene);
   addClouds(scene, createRandom(seed + 99));
-  addTerrain(scene, grid);
+  addTerrain(scene, grid, seed);
   addRunway(scene);
   addWaterLane(scene, seed);
-  addTrees(scene, sample, createRandom(seed));
-  addRocks(scene, sample, createRandom(seed + 77));
-  addStations(scene, sample);
-  addHouses(scene, sample, createRandom(seed + 78));
+  const stations = addStations(scene, sample);
+  const village = addHouses(scene, sample, createRandom(seed + 78));
+  addDock(scene, sample, village);
+  const route = courseRingPositions(sample, seed);
+  route.unshift(waterlaneCenter);
+  route.push(waterlaneCenter);
+  const plots = [...stations.children, ...village.children];
+  function excludeScatter(x, z, runwayBuffer) {
+    if (isNearRunway(x, z, runwayBuffer) || isOnWaterLane(x, z, 24)) return true;
+    if (plots.some(({ position }) => Math.hypot(x - position.x, z - position.z) < 20)) return true;
+    for (let i = 1; i < route.length; i++) {
+      const a = route[i - 1];
+      const b = route[i];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const t = THREE.MathUtils.clamp(((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz), 0, 1);
+      if (Math.hypot(x - a.x - t * dx, z - a.z - t * dz) < 26) return true;
+    }
+    return false;
+  }
+  addTrees(scene, sample, createRandom(seed), excludeScatter);
+  addPalms(scene, sample, createRandom(seed + 79), excludeScatter);
+  addRocks(scene, sample, createRandom(seed + 77), excludeScatter);
   addLighthouse(scene, sample);
   return { heightAt: sample };
 }
