@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { AIRCRAFT, COURSE, PALETTE, WORLD, WORLD_SEED } from './config.js';
 import { createRandom } from './random.js';
-import { runwayCenter, runwayHeading } from './world.js';
+import { runwayCenter, waterlaneCenter, waterlaneHeading } from './world.js';
 
 export function landingLabel(quality) {
   const fraction = quality / COURSE.landingQualityMax;
@@ -36,7 +36,7 @@ export function createCourse(scene, heightAt, seed = WORLD_SEED) {
   });
   const forward = new THREE.Vector3(0, 0, 1);
   const gates = ringPositions.map((position, i) => {
-    const next = ringPositions[i + 1] ?? runwayCenter;
+    const next = ringPositions[i + 1] ?? waterlaneCenter;
     const normal = next.clone().sub(position).normalize();
     const group = new THREE.Group();
     group.name = `Mail gate ${i + 1}`;
@@ -105,8 +105,8 @@ export function createCourse(scene, heightAt, seed = WORLD_SEED) {
 
     if (flight.landed || flight.crashed) {
       run.finished = true;
-      if (flight.landed && run.ringsPassed === gates.length) {
-        const crosswindAngle = Math.asin(Math.abs(Math.sin(flight.heading - runwayHeading)));
+      if (flight.landed && flight.touchdownSurface === 'lane' && run.ringsPassed === gates.length) {
+        const crosswindAngle = Math.asin(Math.abs(Math.sin(flight.heading - waterlaneHeading)));
         const descent = 1 - Math.abs(flight.verticalSpeed) / AIRCRAFT.landingSink;
         const speed = 1 - Math.abs(flight.speed - COURSE.landingIdealSpeed) / COURSE.landingSpeedRange;
         const alignment = 1 - crosswindAngle / COURSE.landingAlignment;
@@ -123,6 +123,6 @@ export function createCourse(scene, heightAt, seed = WORLD_SEED) {
   return {
     state, ringPositions, ringNormals: gates.map(({ normal }) => normal),
     reset, update, updateVisuals,
-    get target() { return ringPositions[state.nextIndex] ?? runwayCenter; },
+    get target() { return ringPositions[state.nextIndex] ?? waterlaneCenter; },
   };
 }

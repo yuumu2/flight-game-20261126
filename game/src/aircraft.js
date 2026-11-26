@@ -1,7 +1,7 @@
 // Builds the mail seaplane and updates its flight and touchdown state.
 import * as THREE from 'three';
 import { AIRCRAFT, PALETTE, STALL } from './config.js';
-import { isOnRunway } from './world.js';
+import { isOnRunway, isOnWaterLane, WORLD } from './world.js';
 
 export function buildSeaplane() {
   const group = new THREE.Group();
@@ -89,7 +89,7 @@ export function createFlight() {
     heading: 0, pitch: 0, roll: 0,
     speed: AIRCRAFT.minSpeed, throttle: AIRCRAFT.initialThrottle,
     verticalSpeed: 0, grounded: false, crashed: false, landed: false,
-    aoa: 0, stall: 0, stallWarn: false,
+    aoa: 0, stall: 0, stallWarn: false, onWater: false, touchdownSurface: null,
   };
   const velocity = new THREE.Vector3();
   const desiredVelocity = new THREE.Vector3();
@@ -119,6 +119,8 @@ export function createFlight() {
     state.stallWarn = false;
     state.crashed = false;
     state.landed = false;
+    state.onWater = parked && isOnWaterLane(position.x, position.z);
+    state.touchdownSurface = null;
   }
 
   function step(dt, input, heightAt) {
@@ -149,7 +151,10 @@ export function createFlight() {
       ? Math.max(0, (state.throttle - AIRCRAFT.takeoffThrottle) / (1 - AIRCRAFT.takeoffThrottle)) * AIRCRAFT.maxSpeed
       : THREE.MathUtils.clamp(throttleSpeed - state.pitch * AIRCRAFT.pitchSpeedFactor,
         AIRCRAFT.minSpeed, AIRCRAFT.maxSpeed);
-    state.speed = THREE.MathUtils.damp(state.speed, targetSpeed, AIRCRAFT.speedResponse, dt);
+    const waterDrag = state.grounded && state.speed < AIRCRAFT.takeoffSpeed
+      && heightAt(state.position.x, state.position.z) <= WORLD.seaLevel + 0.05;
+    const speedResponse = AIRCRAFT.speedResponse * (waterDrag ? AIRCRAFT.waterSpeedResponse : 1);
+    state.speed = THREE.MathUtils.damp(state.speed, targetSpeed, speedResponse, dt);
     state.heading += Math.sin(state.roll) * AIRCRAFT.turnFactor
       * state.speed / AIRCRAFT.turnReferenceSpeed * dt;
 
@@ -172,12 +177,16 @@ export function createFlight() {
     state.position.addScaledVector(velocity, dt);
 
     const { x, z } = state.position;
-    const contact = heightAt(x, z) + AIRCRAFT.groundClearance;
-    if (state.grounded && isOnRunway(x, z)) {
+    const terrainH = heightAt(x, z);
+    state.onWater = terrainH <= WORLD.seaLevel + 0.05;
+    const contact = Math.max(terrainH, WORLD.seaLevel) + AIRCRAFT.groundClearance;
+    if (state.grounded) {
       state.position.y = contact;
-    } else if (state.grounded || state.position.y <= contact) {
+      if (!state.onWater && !isOnRunway(x, z)) state.crashed = true;
+    } else if (state.position.y <= contact) {
       state.position.y = contact;
-      state.landed = !state.grounded && isOnRunway(x, z) && Math.abs(velocity.y) <= AIRCRAFT.landingSink
+      state.touchdownSurface = state.onWater ? (isOnWaterLane(x, z) ? 'lane' : 'water') : 'land';
+      state.landed = state.onWater && Math.abs(velocity.y) <= AIRCRAFT.landingSink
         && state.speed <= AIRCRAFT.landingSpeed && Math.abs(state.roll) <= AIRCRAFT.landingRoll;
       state.crashed = !state.landed;
       state.grounded = false;

@@ -1,6 +1,6 @@
 // Generates the shared elevation grid and builds the atoll scenery.
 import * as THREE from 'three';
-import { PALETTE, RUNWAY, SCENERY, TERRAIN, WORLD, WORLD_SEED } from './config.js';
+import { PALETTE, RUNWAY, SCENERY, TERRAIN, WATERLANE, WORLD, WORLD_SEED } from './config.js';
 import { createRandom, fbm, smoothstep } from './random.js';
 
 const half = WORLD.size / 2;
@@ -16,6 +16,19 @@ const halfWidth = RUNWAY.width / 2;
 export const runwayCenter = new THREE.Vector3(centerX, RUNWAY.elevation, centerZ);
 export const runwayTangent = new THREE.Vector3(tangentX, 0, tangentZ);
 export const runwayHeading = Math.atan2(tangentX, -tangentZ);
+export const waterlaneCenter = new THREE.Vector3(WATERLANE.nx * half, WORLD.seaLevel, WATERLANE.nz * half);
+export const waterlaneTangent = new THREE.Vector3(WATERLANE.nz, 0, -WATERLANE.nx).normalize();
+export const waterlaneHeading = Math.atan2(waterlaneTangent.x, -waterlaneTangent.z);
+export { WORLD };
+
+export function isOnWaterLane(x, z, margin = 0) {
+  const dx = x - waterlaneCenter.x;
+  const dz = z - waterlaneCenter.z;
+  const along = dx * waterlaneTangent.x + dz * waterlaneTangent.z;
+  const across = -dx * waterlaneTangent.z + dz * waterlaneTangent.x;
+  return Math.abs(along) <= WATERLANE.length / 2 + margin
+    && Math.abs(across) <= WATERLANE.width / 2 + margin;
+}
 
 let heightGrid;
 let gridSeed;
@@ -171,6 +184,7 @@ function addTerrain(scene, grid) {
   geometry.computeVertexNormals();
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 });
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.biomeFoam = { value: new THREE.Color(PALETTE.foam) };
     shader.uniforms.biomeSand = { value: new THREE.Color(PALETTE.sand) };
     shader.uniforms.biomeRock = { value: new THREE.Color(PALETTE.rock) };
     shader.uniforms.biomeWarmRock = { value: new THREE.Color(PALETTE.rockWarm) };
@@ -185,13 +199,15 @@ function addTerrain(scene, grid) {
     // Use the flat-shaded face normal in world space so rock boundaries never bleed onto grassy slopes.
     shader.fragmentShader = `
       varying float vTerrainElevation;
-      uniform vec3 biomeSand, biomeRock, biomeWarmRock, biomePale;
+      uniform vec3 biomeFoam, biomeSand, biomeRock, biomeWarmRock, biomePale;
       ${shader.fragmentShader}
     `.replace('#include <normal_fragment_begin>', `
       #include <normal_fragment_begin>
       float upNormal = inverseTransformDirection(normal, viewMatrix).y;
       if (vTerrainElevation > ${TERRAIN.paleStart.toFixed(1)}) {
         diffuseColor.rgb = biomePale;
+      } else if (vTerrainElevation <= ${TERRAIN.foamEnd.toFixed(1)}) {
+        diffuseColor.rgb = biomeFoam;
       } else if (vTerrainElevation <= ${TERRAIN.sandEnd.toFixed(1)}) {
         diffuseColor.rgb = biomeSand;
       } else if (upNormal < ${TERRAIN.steepNormalY}) {
@@ -250,6 +266,48 @@ function addRunway(scene) {
   scene.add(runway);
 }
 
+function addWaterLane(scene, seed) {
+  const lane = new THREE.Group();
+  lane.name = 'Water lane';
+  lane.position.copy(waterlaneCenter);
+  lane.rotation.y = -Math.atan2(waterlaneTangent.z, waterlaneTangent.x);
+  const random = createRandom(seed + 55);
+  const base = new THREE.CylinderGeometry(0.9, 1.1, 0.5, 12);
+  const body = new THREE.ConeGeometry(0.85, 1.6, 10);
+  const lamp = new THREE.SphereGeometry(0.23, 8, 6);
+  const floatMaterial = new THREE.MeshStandardMaterial({ color: PALETTE.metal });
+  const buoyMaterial = new THREE.MeshStandardMaterial({
+    color: PALETTE.buoy, emissive: PALETTE.buoy, emissiveIntensity: 0.5,
+  });
+  const lampMaterial = new THREE.MeshStandardMaterial({
+    color: PALETTE.edgeLight, emissive: PALETTE.edgeLight, emissiveIntensity: 2,
+  });
+
+  function addBuoy(along, across, end = false) {
+    const buoy = new THREE.Group();
+    buoy.position.set(along, (random() - 0.5) * 0.16, across);
+    buoy.rotation.y = random() * Math.PI * 2;
+    place(buoy, base, floatMaterial, 0, 0, 0);
+    place(buoy, body, buoyMaterial, 0, 1.05, 0);
+    if (end) {
+      buoy.scale.setScalar(1.5);
+      place(buoy, lamp, lampMaterial, 0, 1.85, 0);
+    }
+    lane.add(buoy);
+  }
+
+  const end = WATERLANE.length / 2;
+  for (const side of [-1, 1]) {
+    const across = side * WATERLANE.width / 2;
+    for (let along = -end + WATERLANE.buoySpacing / 2; along < end; along += WATERLANE.buoySpacing) {
+      addBuoy(along, across);
+    }
+    addBuoy(-end, across, true);
+    addBuoy(end, across, true);
+  }
+  scene.add(lane);
+}
+
 function addTrees(scene, sample, random) {
   const trees = new THREE.InstancedMesh(
     new THREE.ConeGeometry(1, 1, 6),
@@ -284,6 +342,45 @@ function addTrees(scene, sample, random) {
   scene.add(trees);
 }
 
+function isNearRunway(x, z, margin) {
+  const dx = x - centerX;
+  const dz = z - centerZ;
+  return Math.abs(localRunwayX(dx, dz)) <= halfLength + margin
+    && Math.abs(localRunwayZ(dx, dz)) <= halfWidth + margin;
+}
+
+function addRocks(scene, sample, random) {
+  const rocks = new THREE.InstancedMesh(
+    new THREE.DodecahedronGeometry(1, 0),
+    new THREE.MeshStandardMaterial({ flatShading: true, roughness: 1 }),
+    SCENERY.rockCount,
+  );
+  rocks.name = 'Shore and slope rocks';
+  const rock = new THREE.Object3D();
+  const cool = new THREE.Color(PALETTE.rock);
+  const warm = new THREE.Color(PALETTE.rockWarm);
+  const color = new THREE.Color();
+  let count = 0;
+  for (let attempt = 0; attempt < SCENERY.rockAttempts && count < SCENERY.rockCount; attempt++) {
+    const x = (random() - 0.5) * WORLD.size;
+    const z = (random() - 0.5) * WORLD.size;
+    const y = sample(x, z);
+    const onShore = y >= SCENERY.rockMinHeight && y <= 2.5;
+    const onSlope = y >= 0.5 && y <= SCENERY.rockMaxHeight && slopeAt(sample, x, z) > SCENERY.rockMinSlope;
+    if ((!onShore && !onSlope) || isNearRunway(x, z, 40) || isOnWaterLane(x, z, 16)) continue;
+    const size = 0.8 + random() * 2.6;
+    rock.position.set(x, y + size * 0.25, z);
+    rock.scale.set(size, size * (0.65 + random() * 0.2), size);
+    rock.rotation.set((random() - 0.5) * 0.6, random() * Math.PI * 2, (random() - 0.5) * 0.6);
+    rock.updateMatrix();
+    rocks.setMatrixAt(count, rock.matrix);
+    rocks.setColorAt(count, color.copy(cool).lerp(warm, random()));
+    count++;
+  }
+  rocks.count = count;
+  scene.add(rocks);
+}
+
 function addStations(scene, sample) {
   const group = new THREE.Group();
   group.name = 'Mail stations';
@@ -308,6 +405,73 @@ function addStations(scene, sample) {
     group.add(station);
   }
   scene.add(group);
+}
+
+function addHouses(scene, sample, random) {
+  const village = new THREE.Group();
+  village.name = 'Village houses';
+  const wallColor = new THREE.Color(PALETTE.house);
+  const wallTint = new THREE.Color('#d9b77c');
+  const roofs = ['#873e39', '#5d6e8c', '#a8642f', '#4f7a5a', '#77628f'].map(
+    (color) => new THREE.MeshStandardMaterial({ color }),
+  );
+  const doorway = new THREE.BoxGeometry(1.55, 2.45, 0.18);
+  const door = new THREE.MeshStandardMaterial({ color: PALETTE.canopy });
+  for (let attempt = 0; attempt < 250 && village.children.length < SCENERY.houseCount; attempt++) {
+    const along = (random() - 0.5) * 520;
+    const side = -(95 + random() * 55);
+    const x = centerX + along * tangentX - side * tangentZ;
+    const z = centerZ + along * tangentZ + side * tangentX;
+    const y = sample(x, z);
+    if (y <= 3 || slopeAt(sample, x, z) >= 0.25 || isNearRunway(x, z, 30)) continue;
+    if (village.children.some((house) => Math.hypot(house.position.x - x, house.position.z - z) < 18)) continue;
+
+    const width = 9 + random() * 4;
+    const height = 5 + random() * 2;
+    const depth = 8 + random() * 2;
+    const house = new THREE.Group();
+    house.position.set(x, y - 0.65, z);
+    house.rotation.y = -Math.atan2(tangentZ, tangentX) + (random() - 0.5) * 0.24;
+    const wall = new THREE.MeshStandardMaterial({ color: wallColor.clone().lerp(wallTint, random()) });
+    const roof = roofs[Math.floor(random() * roofs.length)];
+    const gable = new THREE.CylinderGeometry(1, 1, width + 1.2, 3);
+    gable.rotateY(Math.PI / 2);
+    gable.rotateZ(Math.PI / 2);
+    gable.scale(1, 2.6, (depth + 1.1) / Math.sqrt(3));
+    place(house, new THREE.BoxGeometry(width, height, depth), wall, 0, height / 2, 0);
+    place(house, gable, roof, 0, height + 1.22, 0);
+    place(house, doorway, door, 0, 1.85, depth / 2);
+    village.add(house);
+  }
+  scene.add(village);
+}
+
+function addClouds(scene, random) {
+  const clouds = new THREE.Group();
+  clouds.name = 'Sunset clouds';
+  const blob = new THREE.IcosahedronGeometry(1, 0);
+  const top = new THREE.MeshLambertMaterial({
+    color: PALETTE.cloud, flatShading: true, emissive: '#6b4030',
+  });
+  const shade = new THREE.MeshLambertMaterial({
+    color: PALETTE.cloudShade, flatShading: true, emissive: '#54301f',
+  });
+  for (let index = 0; index < SCENERY.cloudCount; index++) {
+    const cloud = new THREE.Group();
+    const angle = random() * Math.PI * 2;
+    const radius = 500 + random() * 2000;
+    cloud.position.set(Math.cos(angle) * radius, 470 + random() * 390, Math.sin(angle) * radius);
+    const count = 3 + Math.floor(random() * 4);
+    for (let i = 0; i < count; i++) {
+      const x = (random() - 0.5) * 76;
+      const y = i === 0 ? -4 : random() * 8 - 4;
+      const z = (random() - 0.5) * 76;
+      const puff = place(cloud, blob, i === 0 ? shade : top, x, y, z);
+      puff.scale.set(26 + random() * 38, 9 + random() * 6, 20 + random() * 18);
+    }
+    clouds.add(cloud);
+  }
+  scene.add(clouds);
 }
 
 function addLighthouse(scene, sample) {
@@ -357,10 +521,14 @@ export function buildWorld(scene, seed = WORLD_SEED) {
   const grid = heightGrid;
   const sample = (x, z) => sampleGrid(grid, x, z);
   addSkyAndSea(scene);
+  addClouds(scene, createRandom(seed + 99));
   addTerrain(scene, grid);
   addRunway(scene);
+  addWaterLane(scene, seed);
   addTrees(scene, sample, createRandom(seed));
+  addRocks(scene, sample, createRandom(seed + 77));
   addStations(scene, sample);
+  addHouses(scene, sample, createRandom(seed + 78));
   addLighthouse(scene, sample);
   return { heightAt: sample };
 }

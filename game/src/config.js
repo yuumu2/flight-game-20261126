@@ -1,15 +1,17 @@
 // Centralizes world, flight, course, and rendering settings.
 export const STEP = 1 / 60;
+export const TRAILS = { enabled: false };
 export const WORLD_SEED = 302;
 export const DEFAULT_SEED = WORLD_SEED;
 export const BEST_KEY = 'duskmail-atoll.best';
 
 export const WORLD = { size: 4096, grid: 256, seaLevel: 0, peakScale: 140, baseOffset: -6 };
 export const RUNWAY = { nx: -0.55, nz: 0.45, length: 900, width: 60, elevation: 2, blend: 260 };
+export const WATERLANE = { nx: -0.16, nz: 0.13, length: 620, width: 46, buoySpacing: 52, buoyBuffer: 14 };
 export const TERRAIN = {
   frequency: 6, octaves: 5, lacunarity: 2, gain: 0.5, exponent: 1.3,
   innerStart: 0.35, innerEnd: 0.55, outerStart: 0.85, outerEnd: 1.05,
-  sandEnd: 4, grassHigh: 125, steepNormalY: 0.5, warmRockStart: 100, paleStart: 125,
+  foamEnd: 1.5, sandEnd: 4, grassHigh: 125, steepNormalY: 0.5, warmRockStart: 100, paleStart: 125,
 };
 export const AIRCRAFT = {
   minSpeed: 16, maxSpeed: 74, throttleRate: 0.45,
@@ -19,6 +21,7 @@ export const AIRCRAFT = {
   turnReferenceSpeed: 42, groundClearance: 1.1,
   landingSink: 4.5, landingSpeed: 33, landingRoll: 0.28,
   takeoffSpeed: 27, takeoffThrottle: 0.25, spawnInset: 22,
+  waterSpeedResponse: 0.5,
   propellerIdle: 10, propellerPower: 42,
 };
 export const STALL = {
@@ -45,12 +48,15 @@ export const PALETTE = {
   ring: '#ff9e4a', ringNext: '#ffc46b', ringPassed: '#57e6a3',
   hudAmber: '#ffc46b', hudCyan: '#7fe7ff',
   asphalt: '#43484f', centerline: '#fffcf5', chalk: '#fff3d8', edgeLight: '#ffe5a5', windsock: '#ff782f',
-  ambientSky: '#e1edff', ambientGround: '#9ca3a0',
+  ambientSky: '#e1edff', ambientGround: '#9ca3a0', foam: '#f3e9c9', buoy: '#ff782f',
+  cloud: '#ffe3c2', cloudShade: '#f0b98d',
   tree: '#315c42', treeSun: '#718745', house: '#ebc68e', roof: '#873e39',
   mailCream: '#f6e6c7', mailRed: '#bb3b35', metal: '#555766', canopy: '#233646',
   navPort: '#ff3546', navStarboard: '#55ff8c', navTail: '#ffffff',
 };
 export const SCENERY = {
+  rockCount: 170, rockAttempts: 6000, rockMinHeight: -1.5, rockMaxHeight: 46, rockMinSlope: 0.5,
+  houseCount: 5, cloudCount: 8,
   radius: 12000, fogNear: 1200, fogFar: 8500, sunElevation: 12, sunAzimuth: 238,
   sunlight: 1.6, ambient: 0.85, seaRoughness: 0.2,
   runwayLift: 0.15, dashSpacing: 24, dashLength: 12, dashWidth: 2, lightSpacing: 34,

@@ -1,7 +1,7 @@
 // Draws flight instruments and next-target guidance on the overlay canvas.
 import * as THREE from 'three';
-import { COURSE, HUD, PALETTE, RUNWAY, VIEW, WORLD } from './config.js';
-import { runwayCenter, runwayTangent } from './world.js';
+import { COURSE, HUD, PALETTE, WATERLANE, VIEW, WORLD } from './config.js';
+import { waterlaneCenter, waterlaneTangent } from './world.js';
 
 const amber = PALETTE.hudAmber;
 const cyan = PALETTE.hudCyan;
@@ -142,14 +142,14 @@ export function createHud(canvas) {
     ctx.fill();
     ctx.clip();
 
-    const runwayX = runwayCenter.x * scale;
-    const runwayY = runwayCenter.z * scale;
-    const halfStrip = RUNWAY.length * scale / 2;
-    const endX = runwayTangent.x * halfStrip;
-    const endY = runwayTangent.z * halfStrip;
+    const laneX = waterlaneCenter.x * scale;
+    const laneY = waterlaneCenter.z * scale;
+    const halfLane = WATERLANE.length * scale / 2;
+    const endX = waterlaneTangent.x * halfLane;
+    const endY = waterlaneTangent.z * halfLane;
     ctx.lineWidth = 2.5;
     ctx.lineCap = 'round';
-    line(runwayX - endX, runwayY - endY, runwayX + endX, runwayY + endY, PALETTE.centerline);
+    line(laneX - endX, laneY - endY, laneX + endX, laneY + endY, cyan);
 
     const { nextIndex, finished, elapsed } = course.state;
     ctx.lineWidth = 1;

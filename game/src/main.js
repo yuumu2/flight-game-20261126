@@ -1,13 +1,14 @@
 // Boots the game and runs the fixed-step simulation and screen flow.
 import * as THREE from 'three';
-import { AIRCRAFT, BEST_KEY, COURSE, DEFAULT_SEED, RUNWAY, STEP, VIEW } from './config.js';
-import { buildWorld, runwayCenter, runwayHeading, runwayTangent } from './world.js';
+import { AIRCRAFT, BEST_KEY, COURSE, DEFAULT_SEED, STEP, VIEW, WATERLANE, WORLD } from './config.js';
+import { buildWorld, waterlaneCenter, waterlaneHeading, waterlaneTangent } from './world.js';
 import { buildSeaplane, createFlight } from './aircraft.js';
 import { createCourse, landingLabel } from './course.js';
 import { ACTION_CONFIRM, ACTION_PAUSE, createInput } from './input.js';
 import { createHud, formatTime } from './hud.js';
 import { createRenderer } from './render.js';
 import { stageShot } from './shots.js';
+import { createTrails, createWake } from './wake.js';
 
 const query = new URLSearchParams(window.location.search);
 const seedParam = query.get('seed');
@@ -29,9 +30,11 @@ const view = createRenderer(document.querySelector('#game'));
 const hud = createHud(document.querySelector('#hud'));
 const input = createInput();
 scene.add(plane.group);
+const wake = createWake(scene, worldSeed);
+const trails = createTrails(scene);
 
-const spawn = runwayCenter.clone().addScaledVector(runwayTangent, RUNWAY.length / 2 - AIRCRAFT.spawnInset);
-spawn.y = world.heightAt(spawn.x, spawn.z) + AIRCRAFT.groundClearance;
+const spawn = waterlaneCenter.clone().addScaledVector(waterlaneTangent, WATERLANE.length / 2 - AIRCRAFT.spawnInset);
+spawn.y = WORLD.seaLevel + AIRCRAFT.groundClearance;
 const numberFormat = new Intl.NumberFormat('en-US');
 const orbitPosition = new THREE.Vector3();
 const orbitTarget = new THREE.Vector3(0, 0, 0);
@@ -44,7 +47,7 @@ function show(nextScreen) {
   screen = nextScreen;
   title.hidden = screen !== 'title';
   result.hidden = screen !== 'over';
-  const flightMessage = flight.state.grounded ? 'On the runway. Hold W to accelerate, then Up to take off.' : 'Flight in progress.';
+  const flightMessage = flight.state.grounded ? 'On the water lane. Hold W to accelerate, then Up to lift off.' : 'Flight in progress.';
   const resultMessage = flight.state.crashed ? 'Flight ended with a crash.' : 'Flight complete.';
   status.textContent = {
     title: 'Duskmail Atoll. Press Space or click to fly.',
@@ -68,7 +71,8 @@ function bestScore(score, staged) {
 function showResult(staged = false) {
   const run = course.state;
   const landing = flight.state.crashed ? 'Crash'
-    : run.ringsPassed < COURSE.ringCount ? 'Course incomplete' : landingLabel(run.landingQuality);
+    : flight.state.touchdownSurface === 'water' ? landingLabel(0)
+      : run.ringsPassed < COURSE.ringCount ? 'Course incomplete' : landingLabel(run.landingQuality);
   const fields = [
     ['Rings', `${run.ringsPassed} / ${COURSE.ringCount}`],
     ['Time', formatTime(run.elapsed)],
@@ -90,7 +94,9 @@ function showResult(staged = false) {
 }
 
 function resetRun() {
-  flight.reset(spawn, runwayHeading + Math.PI, true);
+  flight.reset(spawn, waterlaneHeading + Math.PI, true);
+  wake.reset();
+  trails.reset();
   course.reset(spawn);
   view.updateCamera(flight.state, 0, true);
   accumulator = 0;
@@ -101,6 +107,10 @@ function paint(dt) {
   plane.group.position.copy(state.position);
   plane.group.rotation.set(state.pitch, -state.heading, -state.roll, 'YXZ');
   plane.spinPropeller(dt, state.throttle);
+  // Preserve the staged wake at the end of its simulated run.
+  const effectDt = shot === null ? dt : 0;
+  wake.update(state, effectDt);
+  trails.update(state, effectDt);
   view.render(scene);
   hud.draw(state, course, screen, view.camera, state.position);
 }
@@ -139,7 +149,8 @@ if (shot !== null) {
   window.__shotReady = false;
   hud.setStaged(true);
   if (shot === 'finish') result.classList.add('shot-side');
-  const staged = stageShot(shot, { scene, flight, course, renderer: view });
+  const staged = stageShot(shot, { scene, flight, course, renderer: view, heightAt: world.heightAt, wake });
+  if (shot === 'bank') trails.seedArc(flight.state);
   if (staged.screen === 'over') showResult(true);
   else show(staged.screen);
   let remaining = VIEW.shotFrames;

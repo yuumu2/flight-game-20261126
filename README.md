@@ -3,13 +3,13 @@
 [![rank](https://make.fun/badge/best-flight-game-20261126-0057/yuumu2/flight-game-20261126/rank.svg)](https://make.fun/bounty/best-flight-game-20261126-0057/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=best-flight-game-20261126-0057)
 [![reward](https://make.fun/badge/best-flight-game-20261126-0057/yuumu2/flight-game-20261126/reward.svg)](https://make.fun/bounty/best-flight-game-20261126-0057?utm_source=github&utm_medium=readme&utm_campaign=best-flight-game-20261126-0057)
 
-Fly a mail seaplane around a sunset atoll, clear ten rings in order, and return to the shore strip. A prompt return and a smooth, aligned landing earn bonus points.
+Fly a mail seaplane around a sunset atoll, clear ten rings in order, and return to the lagoon’s water lane. A prompt return and a smooth, aligned landing earn bonus points.
 
 ## How to play
 
 - **Space / Enter / click** starts or restarts a run.
 - **W / S** raises or lowers throttle. **Shift / Control** also work.
-- **↑ / ↓** climbs or descends. Hold **W** to build speed on the runway, then hold **↑** to lift off.
+- **↑ / ↓** climbs or descends. Hold **W** to build speed on the water lane, then hold **↑** to lift off.
 - **← / →** or **A / D** banks the plane and turns it.
 - **P / Esc** pauses or resumes.
 - Follow the cyan marker through the rings. When the HUD says **LAND**, line up with the strip, reduce speed, and descend gently with the wings level.
