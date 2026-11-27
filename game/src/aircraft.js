@@ -126,18 +126,17 @@ function buildCockpit(materials, cockpit) {
   const dark = new THREE.MeshStandardMaterial({ color: '#12161d', roughness: 0.85 });
   const brow = new THREE.MeshStandardMaterial({ color: '#101317', roughness: 0.98 });
   const panelGray = new THREE.MeshStandardMaterial({ color: '#8f948b', roughness: 0.85 });
-  const cabinGray = new THREE.MeshStandardMaterial({
-    color: '#454b4c', roughness: 0.95, side: THREE.DoubleSide,
-  });
+  const doorUpper = new THREE.MeshStandardMaterial({ color: '#525a5b', roughness: 0.95, side: THREE.DoubleSide });
+  const doorLower = new THREE.MeshStandardMaterial({ color: '#434a4b', roughness: 0.95, side: THREE.DoubleSide });
   const rubber = new THREE.MeshStandardMaterial({ color: '#0c1013', roughness: 1 });
   const panelMaterial = new THREE.MeshBasicMaterial({
     map: cockpit.texture, toneMapped: false, depthTest: false, depthWrite: false,
   });
 
-  function part(geometry, material, x, y, z) {
+  function part(geometry, material, x, y, z, parent = interior) {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(x, y, z);
-    interior.add(mesh);
+    parent.add(mesh);
     return mesh;
   }
 
@@ -151,17 +150,27 @@ function buildCockpit(materials, cockpit) {
   }
 
   function sidewall(side) {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute([
-      side * 0.79, 0.50, -1.00, side * 0.70, 0.62, 0.45,
-      side * 0.67, -0.45, 0.45, side * 0.77, -0.45, -1.04,
-    ], 3));
-    geometry.setIndex([0, 1, 2, 0, 2, 3]);
-    geometry.computeVertexNormals();
-    part(geometry, cabinGray, 0, 0, 0).name = 'Cabin door liner';
-    brace(new THREE.BoxGeometry(0.055, 1, 0.055),
-      new THREE.Vector3(side * 0.79, 0.49, -1.01),
-      new THREE.Vector3(side * 0.70, 0.62, 0.45), dark).name = 'Door sill';
+    const topFront = new THREE.Vector3(side * 0.79, 0.50, -1.00);
+    const topRear = new THREE.Vector3(side * 0.70, 0.62, 0.45);
+    const bottomFront = new THREE.Vector3(side * 0.77, -0.45, -1.04);
+    const bottomRear = new THREE.Vector3(side * 0.67, -0.45, 0.45);
+    const trimFront = bottomFront.clone().lerp(topFront, 0.55);
+    const trimRear = bottomRear.clone().lerp(topRear, 0.55);
+    function doorPanel(corners, material, name) {
+      const geometry = new THREE.BufferGeometry().setFromPoints(corners);
+      geometry.setIndex([0, 1, 2, 0, 2, 3]);
+      geometry.computeVertexNormals();
+      part(geometry, material, 0, 0, 0).name = name;
+    }
+    doorPanel([topFront, topRear, trimRear, trimFront], doorUpper, 'Upper door panel');
+    doorPanel([trimFront, trimRear, bottomRear, bottomFront], doorLower, 'Lower door panel');
+    brace(new THREE.BoxGeometry(0.022, 1, 0.025), trimFront, trimRear, dark).name = 'Door trim';
+    brace(new THREE.BoxGeometry(0.07, 1, 0.07), topFront, topRear, dark).name = 'Door sill';
+    brace(new THREE.BoxGeometry(0.055, 1, 0.055), topRear, bottomRear, dark).name = 'Rear door pillar';
+    const handle = bottomFront.clone().lerp(bottomRear, 0.72)
+      .lerp(topFront.clone().lerp(topRear, 0.72), 0.40);
+    part(new THREE.BoxGeometry(0.024, 0.023, 0.087), materials.metal,
+      handle.x - side * 0.015, handle.y, handle.z).name = 'Door handle';
   }
 
   part(new THREE.BoxGeometry(1.58, 0.78, 0.14), panelGray, 0, 0.13, -1.08);
@@ -173,11 +182,27 @@ function buildCockpit(materials, cockpit) {
   part(new THREE.BoxGeometry(1.62, 0.075, 0.37), brow, 0, 0.5325, -0.975);
   part(new THREE.BoxGeometry(1.60, 0.034, 0.028), dark, 0, 0.535, -0.79).name = 'Padded brow edge';
   part(new THREE.BoxGeometry(1.54, 0.017, 0.29), rubber, 0, 0.489, -0.974).name = 'Brow underside';
-  part(new THREE.BoxGeometry(1.55, 0.19, 0.12), cabinGray, 0, -0.33, -1.03).name = 'Lower panel apron';
+  brace(new THREE.BoxGeometry(1.70, 1, 0.05),
+    new THREE.Vector3(0, -0.46, -0.45), new THREE.Vector3(0, -0.24, -1.02), panelGray).name = 'Sloped panel apron';
+  for (const side of [-1, 1]) {
+    part(new THREE.BoxGeometry(0.075, 0.14, 0.17), panelGray, side * 0.775, -0.277, -1.01).name = 'Apron corner filler';
+  }
   const console = part(new THREE.BoxGeometry(0.25, 0.26, 0.55), dark, 0.08, -0.36, -0.82);
   console.name = 'Lower centre console';
-  // The heel board closes the gap between the panel apron and the cabin floor.
-  part(new THREE.BoxGeometry(1.7, 0.06, 2.25), cabinGray, 0, -0.48, -0.27).name = 'Cabin floor';
+  const carpetCanvas = document.createElement('canvas');
+  carpetCanvas.width = carpetCanvas.height = 64;
+  const carpetContext = carpetCanvas.getContext('2d');
+  const carpetGrain = carpetContext.createImageData(64, 64);
+  for (let i = 0; i < carpetGrain.data.length; i += 4) {
+    const grey = 236 + ((Math.imul(i / 4 + 1, 0x45d9f3b) >>> 18) % 14);
+    carpetGrain.data.set([grey, grey, grey, 255], i);
+  }
+  carpetContext.putImageData(carpetGrain, 0, 0);
+  const carpetMap = new THREE.CanvasTexture(carpetCanvas);
+  carpetMap.wrapS = carpetMap.wrapT = THREE.RepeatWrapping;
+  carpetMap.repeat.set(14, 18);
+  const carpet = new THREE.MeshStandardMaterial({ color: '#24282d', roughness: 1, map: carpetMap });
+  part(new THREE.BoxGeometry(1.7, 0.06, 2.25), carpet, 0, -0.48, -0.27).name = 'Cabin floor';
   part(new THREE.BoxGeometry(1.49, 0.13, 0.21), dark, 0, -0.43, -1.18);
   const post = new THREE.BoxGeometry(0.038, 1, 0.045);
   const seal = new THREE.BoxGeometry(0.012, 1, 0.018);
@@ -194,11 +219,12 @@ function buildCockpit(materials, cockpit) {
   for (const x of [-0.013, 0.013]) {
     brace(seal, new THREE.Vector3(x, 0.52, -0.974), new THREE.Vector3(x, 1.054, -0.601), rubber);
   }
-  const cardBacking = part(new THREE.BoxGeometry(0.37, 0.145, 0.012), dark, 0.245, 0.79, -0.80);
-  cardBacking.rotation.x = -0.08;
-  const mount = brace(new THREE.BoxGeometry(0.020, 1, 0.018),
-    new THREE.Vector3(0.01, 0.873, -0.748), new THREE.Vector3(0.152, 0.869, -0.811), dark);
-  mount.name = 'Checklist mount';
+  const checklist = new THREE.Group();
+  checklist.name = 'Post-mounted checklist';
+  checklist.position.set(0, 0.79, -0.768);
+  checklist.rotation.x = 0.55;
+  interior.add(checklist);
+  part(new THREE.BoxGeometry(0.30, 0.118, 0.012), dark, 0, 0, -0.007, checklist);
   const dropShadow = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false,
     vertexShader: `
@@ -214,26 +240,40 @@ function buildCockpit(materials, cockpit) {
         gl_FragColor = vec4(0.02, 0.025, 0.03, 0.40 * (1.0 - smoothstep(0.0, 0.10, length(edge))));
       }`,
   });
-  const shadow = part(new THREE.PlaneGeometry(0.412, 0.185), dropShadow, 0.254, 0.778, -0.81);
-  shadow.rotation.x = -0.08;
-  const card = part(new THREE.PlaneGeometry(0.36, 0.135),
-    new THREE.MeshBasicMaterial({ map: cockpit.cardTexture, toneMapped: false }), 0.245, 0.79, -0.792);
-  card.rotation.x = -0.08;
-  part(new THREE.BoxGeometry(0.062, 0.022, 0.023), materials.metal, 0.151, 0.858, -0.784).name = 'Checklist clip';
+  part(new THREE.PlaneGeometry(0.332, 0.151), dropShadow, 0.006, -0.008, -0.021, checklist);
+  part(new THREE.PlaneGeometry(0.29, 0.108),
+    new THREE.MeshBasicMaterial({ map: cockpit.cardTexture, toneMapped: false }), 0, 0, 0, checklist);
+  part(new THREE.BoxGeometry(0.05, 0.030, 0.06), materials.metal, 0, 0.064, -0.020, checklist).name = 'Checklist clip';
 
-  const column = brace(new THREE.CylinderGeometry(0.025, 0.033, 1, 10),
-    new THREE.Vector3(-0.49, -0.30, -0.95), new THREE.Vector3(-0.49, 0.377, -0.42), dark);
+  // Compose the yoke over the instrument face because the exterior fuselage is solid.
+  const yokeDepth = { depthTest: false, depthWrite: false };
+  const charcoal = new THREE.MeshStandardMaterial({
+    color: '#3a4048', roughness: 0.55, metalness: 0.25, ...yokeDepth,
+  });
+  const edge = new THREE.MeshStandardMaterial({ color: '#6a7280', roughness: 0.5, ...yokeDepth });
+  const gripRubber = new THREE.MeshStandardMaterial({ color: '#252a30', roughness: 0.7, ...yokeDepth });
+  const hubMetal = materials.metal.clone();
+  Object.assign(hubMetal, yokeDepth);
+  const bar = new THREE.Vector3(-0.49, 0.067, -0.78);
+  function yokePart(geometry, material, x, y, z, name) {
+    const mesh = part(geometry, material, x, y, z);
+    mesh.name = name;
+    mesh.renderOrder = 2;
+    return mesh;
+  }
+  const column = brace(new THREE.CylinderGeometry(0.026, 0.032, 1, 10),
+    new THREE.Vector3(-0.49, -0.115, -0.99), bar, charcoal);
   column.name = 'Yoke column';
   column.renderOrder = 2;
-  const yokeBar = part(new THREE.BoxGeometry(0.218, 0.029, 0.035), dark, -0.49, 0.377, -0.42);
-  yokeBar.name = 'Yoke crossbar';
-  yokeBar.renderOrder = 2;
-  const gripGeometry = new THREE.CapsuleGeometry(0.017, 0.049, 4, 8);
+  yokePart(new THREE.BoxGeometry(0.30, 0.032, 0.036), charcoal, bar.x, bar.y, bar.z, 'Yoke crossbar');
+  yokePart(new THREE.BoxGeometry(0.264, 0.005, 0.010), edge, bar.x, bar.y + 0.016, bar.z + 0.012, 'Yoke edge');
+  const hub = yokePart(new THREE.CylinderGeometry(0.034, 0.034, 0.037, 16),
+    hubMetal, bar.x, bar.y, bar.z + 0.017, 'Yoke hub');
+  hub.rotation.x = Math.PI / 2;
+  const gripGeometry = new THREE.CapsuleGeometry(0.017, 0.051, 4, 8);
   for (const side of [-1, 1]) {
-    const grip = part(gripGeometry, rubber, -0.49 + side * 0.104, 0.392, -0.42);
-    grip.name = 'Yoke grip';
-    grip.rotation.z = side * -0.16;
-    grip.renderOrder = 2;
+    const grip = yokePart(gripGeometry, gripRubber, bar.x + side * 0.146, bar.y, bar.z + 0.010, 'Yoke grip');
+    grip.rotation.x = -Math.PI / 6;
   }
   return interior;
 }
