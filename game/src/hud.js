@@ -264,7 +264,7 @@ export function createHud(canvas) {
     readout('RINGS', rings === COURSE.ringCount ? 'LAND' : `${rings}/${COURSE.ringCount}`,
       right + 10, margin + 84, width - margin - 10, amber, size);
     compass(flight.heading, compact ? margin + 125 : margin, Math.min(HUD.compassWidth, compact ? width - 2 * margin : width - 465));
-    objective(course, position, margin + (compact ? 187 : 62));
+    if (!cockpit) objective(course, position, margin + (compact ? 187 : 62));
 
     const x = width / 2;
     const y = height / 2;
@@ -275,10 +275,12 @@ export function createHud(canvas) {
       line(x, y + 3, x, y + 7, amber);
     }
     drawTarget(course.target, camera, position);
-    const radarRadius = compact ? 52 : 70;
-    const radarBox = 2 * radarRadius + 14;
-    panel(width - margin - radarBox, height - margin - radarBox, radarBox, radarBox);
-    radar(flight, course, position, width - margin - radarRadius, height - margin - radarRadius, radarRadius);
+    if (!cockpit) {
+      const radarRadius = compact ? 52 : 70;
+      const radarBox = 2 * radarRadius + 14;
+      panel(width - margin - radarBox, height - margin - radarBox, radarBox, radarBox);
+      radar(flight, course, position, width - margin - radarRadius, height - margin - radarRadius, radarRadius);
+    }
 
     const radius = compact ? 21 : 28;
     const spacing = radius * 2.36;

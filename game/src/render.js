@@ -1,11 +1,13 @@
 // Configures WebGL and positions the chase or screenshot camera.
 import * as THREE from 'three';
-import { STALL, VIEW } from './config.js';
+import { SHADOWS, STALL, VIEW } from './config.js';
 
 export function createRenderer(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = VIEW.exposure;
+  renderer.shadowMap.enabled = SHADOWS.enabled;
+  if (SHADOWS.enabled) renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const camera = new THREE.PerspectiveCamera(VIEW.fov, 1, VIEW.near, VIEW.far);
   const direction = new THREE.Vector3();
   const desired = new THREE.Vector3();
@@ -15,6 +17,7 @@ export function createRenderer(canvas) {
   const cockpitRotation = new THREE.Euler(0, 0, 0, 'YXZ');
   const cockpitEye = new THREE.Vector3();
   const cockpitForward = new THREE.Vector3();
+  const cockpitLookDown = THREE.MathUtils.degToRad(12);
   let chaseActive = false;
   let buffetClock = 0;
   let cameraMode = 'chase';
@@ -63,6 +66,7 @@ export function createRenderer(canvas) {
   function setCameraMode(mode) {
     cameraMode = mode;
     camera.near = mode === 'cockpit' ? 0.1 : VIEW.near;
+    camera.fov = mode === 'cockpit' ? 76 : VIEW.fov;
     camera.updateProjectionMatrix();
   }
 
@@ -72,8 +76,8 @@ export function createRenderer(canvas) {
 
   function updateCockpitCamera(flight) {
     cockpitRotation.set(flight.pitch, -flight.heading, -flight.roll);
-    cockpitEye.set(0, 0.78, -0.05).applyEuler(cockpitRotation).add(flight.position);
-    cockpitForward.set(0, 0, -1).applyEuler(cockpitRotation);
+    cockpitEye.set(-0.36, 0.78, -0.05).applyEuler(cockpitRotation).add(flight.position);
+    cockpitForward.set(0, -Math.sin(cockpitLookDown), -Math.cos(cockpitLookDown)).applyEuler(cockpitRotation);
     camera.position.copy(cockpitEye);
     camera.up.copy(worldUp).applyEuler(cockpitRotation);
     camera.lookAt(cockpitForward.add(cockpitEye));

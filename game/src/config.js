@@ -1,5 +1,6 @@
 // Centralizes world, flight, course, and rendering settings.
 export const STEP = 1 / 60;
+export const SHADOWS = { enabled: true, mapSize: 2048, box: 95, distance: 260, bias: -0.0004, normalBias: 1.5 };
 export const FUEL = { capacitySeconds: 300, idleFraction: 0.22, lowFraction: 0.25, criticalFraction: 0.10 };
 export const TRAILS = { enabled: false };
 export const WORLD_SEED = 302;
@@ -43,7 +44,7 @@ export const COURSE = {
   landingIdealSpeed: 26, landingSpeedRange: 16, landingAlignment: Math.PI / 4,
 };
 export const PALETTE = {
-  skyZenith: '#434c75', skyMid: '#885870', horizon: '#ee8949',
+  skyZenith: '#3f4a78', skyMid: '#8a5a6d', horizon: '#f08a4b',
   sun: '#ffb36b', fog: '#f2a05e', sea: '#1d6a80', seaEmissive: '#07293a', sand: '#dcbd82',
   grassLow: '#6c8955', grassHigh: '#a99a60', rock: '#777c74', rockWarm: '#8d7f70', snow: '#f4efe6',
   grassBright: '#86b364', forest: '#3a6b34', turquoise: '#8fd8cc', lagoon: '#2f9db4',
@@ -58,9 +59,9 @@ export const PALETTE = {
 };
 export const SCENERY = {
   rockCount: 520, rockAttempts: 16000, rockMinHeight: -1.5, rockMaxHeight: 46, rockMinSlope: 0.5,
-  houseCount: 9, cloudCount: 8,
+  houseCount: 9, cloudCount: 10,
   radius: 12000, fogNear: 1200, fogFar: 8500, sunElevation: 12, sunAzimuth: 238,
-  sunlight: 1.6, ambient: 0.85, seaRoughness: 0.2,
+  sunlight: 1.75, ambient: 0.9, seaRoughness: 0.16,
   runwayLift: 0.15, dashSpacing: 24, dashLength: 12, dashWidth: 2, lightSpacing: 34,
   treeCount: 1500, palmCount: 280, treeAttempts: 22000, treeMinHeight: 11, treeMaxHeight: 74, treeMaxSlope: 0.44,
   treeRunwayBuffer: 125, treeMinSize: 5, treeSizeRange: 11,
@@ -68,7 +69,7 @@ export const SCENERY = {
 };
 
 export const VIEW = {
-  maxFrame: 0.25, pixelRatio: 2, fov: 62, near: 0.5, far: 30000, exposure: 1.1,
+  maxFrame: 0.25, pixelRatio: 2, fov: 62, near: 0.5, far: 30000, exposure: 1.13,
   chaseBack: 15, chaseUp: 5.5, chaseLook: 40, chaseDamping: 5, chasePitch: 0.35, chaseBank: 0.35,
   orbitRadius: 1950, orbitHeight: 535, orbitRate: 0.048, shotFrames: 14,
 };

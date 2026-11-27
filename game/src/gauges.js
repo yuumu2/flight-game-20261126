@@ -218,22 +218,36 @@ export function vsiFraction(verticalSpeed) {
   return THREE.MathUtils.clamp((verticalSpeed * 196.85 + 2000) / 4000, 0, 1);
 }
 
-export function drawInstrumentRow(ctx, cx, cy, radius, flight, position) {
-  const spacing = radius * 2.36;
+function drawInstruments(ctx, radius, flight, position, centers) {
   const speed = flight.speed * HUD.knotsPerMetreSecond;
   const altitude = Math.max(0, position.y) * HUD.feetPerMetre;
   const engineThrottle = flight.engineThrottle ?? flight.throttle;
-  drawGauge(ctx, cx - 2.5 * spacing, cy, radius, speed / 160,
-    'SPD KT', speedTicks, {
-      arcs: [[45 / 160, 115 / 160, green], [115 / 160, 140 / 160, yellow]],
-      redLine: 140 / 160,
-    });
-  drawGauge(ctx, cx - 1.5 * spacing, cy, radius, altitude / 3000, 'ALT FT', altitudeTicks, { drum: altitude });
-  drawAttitude(ctx, flight, cx - 0.5 * spacing, cy, radius);
-  drawGauge(ctx, cx + 0.5 * spacing, cy, radius, vsiFraction(flight.verticalSpeed), 'VSI', vsiTicks, { angleFor: vsiAngle });
-  drawGauge(ctx, cx + 1.5 * spacing, cy, radius, (600 + engineThrottle * 2100) / 3000,
+  const [spd, alt, adi, vsi, rpm, fuel] = centers;
+  drawGauge(ctx, ...spd, radius, speed / 160, 'SPD KT', speedTicks, {
+    arcs: [[45 / 160, 115 / 160, green], [115 / 160, 140 / 160, yellow]],
+    redLine: 140 / 160,
+  });
+  drawGauge(ctx, ...alt, radius, altitude / 3000, 'ALT FT', altitudeTicks, { drum: altitude });
+  drawAttitude(ctx, flight, ...adi, radius);
+  drawGauge(ctx, ...vsi, radius, vsiFraction(flight.verticalSpeed), 'VSI', vsiTicks, { angleFor: vsiAngle });
+  drawGauge(ctx, ...rpm, radius, (600 + engineThrottle * 2100) / 3000,
     'RPM', rpmTicks, { arcs: [[1900 / 3000, 2600 / 3000, green]], redLine: 2600 / 3000 });
-  drawGauge(ctx, cx + 2.5 * spacing, cy, radius, flight.fuel, 'FUEL', fuelTicks, { arcs: [[0, FUEL.lowFraction, red]] });
+  drawGauge(ctx, ...fuel, radius, flight.fuel, 'FUEL', fuelTicks, { arcs: [[0, FUEL.lowFraction, red]] });
+}
+
+export function drawInstrumentRow(ctx, cx, cy, radius, flight, position) {
+  const spacing = radius * 2.36;
+  const centers = Array.from({ length: 6 }, (_, i) => [cx + (i - 2.5) * spacing, cy]);
+  drawInstruments(ctx, radius, flight, position, centers);
+}
+
+export function drawSixPack(ctx, cx, cy, radius, flight, position) {
+  const dx = radius * 2.36;
+  const dy = radius * 1.30;
+  // The attitude indicator takes the middle position in the upper row.
+  const centers = [[cx - dx, cy - dy], [cx + dx, cy - dy], [cx, cy - dy],
+    [cx - dx, cy + dy], [cx, cy + dy], [cx + dx, cy + dy]];
+  drawInstruments(ctx, radius, flight, position, centers);
 }
 
 export function drawDigitalStrip(ctx, cx, y, size, flight, position) {

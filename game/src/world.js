@@ -1,7 +1,7 @@
 // Generates the shared elevation grid and builds the atoll scenery.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.min.js';
-import { COURSE, PALETTE, RUNWAY, SCENERY, TERRAIN, WATERLANE, WORLD, WORLD_SEED } from './config.js';
+import { COURSE, PALETTE, RUNWAY, SCENERY, SHADOWS, TERRAIN, WATERLANE, WORLD, WORLD_SEED } from './config.js';
 import { createRandom, fbm, smoothstep, valueNoise } from './random.js';
 
 const half = WORLD.size / 2;
@@ -109,7 +109,67 @@ export function heightAt(x, z) {
   return sampleGrid(heightGrid, x, z);
 }
 
-function addSkyAndSea(scene) {
+const shadowLights = new WeakMap();
+
+function waterNormalMap() {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const image = ctx.createImageData(size, size);
+  const heights = new Float32Array(size * size);
+  function tiledNoise(u, v, frequency, seed) {
+    const x = u * frequency;
+    const y = v * frequency;
+    const blendX = smoothstep(0, 1, u);
+    const blendY = smoothstep(0, 1, v);
+    const a = THREE.MathUtils.lerp(valueNoise(x, y, seed), valueNoise(x - frequency, y, seed), blendX);
+    const b = THREE.MathUtils.lerp(valueNoise(x, y - frequency, seed),
+      valueNoise(x - frequency, y - frequency, seed), blendX);
+    return THREE.MathUtils.lerp(a, b, blendY);
+  }
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      heights[y * size + x] = tiledNoise(x / size, y / size, 2, 181)
+        + tiledNoise(x / size, y / size, 7, 182) * 0.32;
+    }
+  }
+  const height = (x, y) => heights[((y + size) % size) * size + (x + size) % size];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const nw = height(x - 1, y - 1);
+      const ne = height(x + 1, y - 1);
+      const sw = height(x - 1, y + 1);
+      const se = height(x + 1, y + 1);
+      const dx = (ne + 2 * height(x + 1, y) + se - nw - 2 * height(x - 1, y) - sw) * 8;
+      const dy = (sw + 2 * height(x, y + 1) + se - nw - 2 * height(x, y - 1) - ne) * 8;
+      const normal = 1 / Math.hypot(dx, dy, 1);
+      const i = (y * size + x) * 4;
+      image.data[i] = (-dx * normal * 0.5 + 0.5) * 255;
+      image.data[i + 1] = (dy * normal * 0.5 + 0.5) * 255;
+      image.data[i + 2] = (normal * 0.5 + 0.5) * 255;
+      image.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(260, 260);
+  return texture;
+}
+
+function updateShadows(scene, position) {
+  const light = shadowLights.get(scene);
+  if (!light) return;
+  const { sun, target, direction } = light;
+  sun.position.copy(position).addScaledVector(direction, SHADOWS.distance);
+  target.position.copy(position);
+  sun.updateMatrixWorld();
+  target.updateMatrixWorld();
+}
+
+function addSkyAndSea(scene, normalMap) {
   const elevation = THREE.MathUtils.degToRad(SCENERY.sunElevation);
   const azimuth = THREE.MathUtils.degToRad(SCENERY.sunAzimuth);
   const sunDirection = new THREE.Vector3(
@@ -144,7 +204,7 @@ function addSkyAndSea(scene) {
           vec3 color = mix(horizon, mid, smoothstep(0.015, 0.30, altitude));
           color = mix(color, zenith, smoothstep(0.18, 0.92, altitude));
           float towardSun = max(dot(direction, sunDirection), 0.0);
-          color = mix(color, sun, 0.50 * pow(towardSun, 12.0));
+          color = mix(color, sun, 0.55 * pow(towardSun, 12.0));
           float aureole = 0.45 * pow(towardSun, 105.0) + 0.62 * pow(towardSun, 680.0);
           float disc = smoothstep(0.99964, 0.99973, towardSun);
           color += sun * aureole + vec3(3.6, 2.22, 1.1) * disc;
@@ -161,21 +221,36 @@ function addSkyAndSea(scene) {
   scene.fog = new THREE.Fog(PALETTE.horizon, SCENERY.fogNear, SCENERY.fogFar);
   const sun = new THREE.DirectionalLight(PALETTE.sun, SCENERY.sunlight);
   sun.position.copy(sunDirection);
+  if (SHADOWS.enabled) {
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(SHADOWS.mapSize, SHADOWS.mapSize);
+    Object.assign(sun.shadow.camera, {
+      left: -SHADOWS.box, right: SHADOWS.box, top: SHADOWS.box, bottom: -SHADOWS.box,
+      near: 10, far: 600,
+    });
+    sun.shadow.camera.updateProjectionMatrix();
+    sun.shadow.bias = SHADOWS.bias;
+    sun.shadow.normalBias = SHADOWS.normalBias;
+    scene.add(sun.target);
+    shadowLights.set(scene, { sun, target: sun.target, direction: sunDirection });
+  }
   scene.add(sun, new THREE.HemisphereLight(PALETTE.ambientSky, PALETTE.ambientGround, SCENERY.ambient));
 
   const sea = new THREE.Mesh(
     new THREE.CircleGeometry(SCENERY.radius, 128),
     new THREE.MeshStandardMaterial({
       color: PALETTE.sea, emissive: PALETTE.seaEmissive, roughness: SCENERY.seaRoughness,
+      normalMap, normalScale: new THREE.Vector2(0.35, 0.35),
     }),
   );
   sea.name = 'Lagoon and open sea';
+  sea.receiveShadow = true;
   sea.rotation.x = -Math.PI / 2;
   sea.position.y = WORLD.seaLevel;
   scene.add(sea);
 }
 
-function addShallows(scene, sample) {
+function addShallows(scene, sample, waterTexture) {
   const geometry = new THREE.PlaneGeometry(5600, 5600, 120, 120);
   geometry.rotateX(-Math.PI / 2);
   const positions = geometry.getAttribute('position');
@@ -193,10 +268,14 @@ function addShallows(scene, sample) {
     color.toArray(colors, i * 3);
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const normalMap = waterTexture.clone();
+  normalMap.repeat.set(140, 140);
   const shallows = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
-    vertexColors: true, roughness: 0.32, metalness: 0,
+    vertexColors: true, roughness: 0.28, metalness: 0,
+    normalMap, normalScale: new THREE.Vector2(0.22, 0.22),
   }));
   shallows.name = 'Lagoon shallows';
+  shallows.receiveShadow = true;
   shallows.position.y = WORLD.seaLevel + 0.05;
   scene.add(shallows);
 }
@@ -210,12 +289,16 @@ function slopeAt(sample, x, z) {
 
 function terrainGrain(seed) {
   const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 256;
+  canvas.width = canvas.height = 512;
   const ctx = canvas.getContext('2d');
   const image = ctx.createImageData(canvas.width, canvas.height);
-  const random = createRandom(seed + 140);
   for (let i = 0; i < image.data.length; i += 4) {
-    const grey = 226 + Math.floor(random() * 30);
+    const pixel = i / 4;
+    const x = pixel % canvas.width;
+    const y = Math.floor(pixel / canvas.width);
+    const grain = valueNoise(x / 24, y / 24, seed + 140) * 0.65
+      + valueNoise(x / 5, y / 5, seed + 141) * 0.35;
+    const grey = Math.round(218 + grain * 34);
     image.data[i] = image.data[i + 1] = image.data[i + 2] = grey;
     image.data[i + 3] = 255;
   }
@@ -223,7 +306,7 @@ function terrainGrain(seed) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(160, 160);
-  texture.anisotropy = 4;
+  texture.anisotropy = 8;
   return texture;
 }
 
@@ -260,7 +343,7 @@ function addTerrain(scene, grid, seed) {
       * (1 - smoothstep(55, 75, y)) * (1 - exposed);
     color.copy(lowGrass).lerp(highGrass, dryness).lerp(brightGrass, meadow)
       .lerp(forest, forestMask * 0.75).lerp(stone, exposed)
-      .multiplyScalar(0.88 + broad * 0.14 + detail * 0.08 + micro * 0.10);
+      .multiplyScalar(0.88 + broad * 0.14 + detail * 0.08 + micro * 0.13);
     color.toArray(colors, i * 3);
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -302,6 +385,7 @@ function addTerrain(scene, grid, seed) {
   };
   const terrain = new THREE.Mesh(geometry, material);
   terrain.name = 'Atoll terrain';
+  terrain.receiveShadow = true;
   scene.add(terrain);
 }
 
@@ -405,12 +489,14 @@ function addTrees(scene, sample, random, excluded) {
     SCENERY.treeCount,
   );
   trees.name = 'Atoll trees';
+  trees.castShadow = true;
   const trunks = new THREE.InstancedMesh(
     new THREE.CylinderGeometry(0.13, 0.2, 1, 5),
     new THREE.MeshStandardMaterial({ color: '#6b4a2f', flatShading: true, roughness: 1 }),
     SCENERY.treeCount,
   );
   trunks.name = 'Atoll tree trunks';
+  trunks.castShadow = true;
   const tree = new THREE.Object3D();
   const shade = new THREE.Color(PALETTE.tree);
   const sun = new THREE.Color(PALETTE.treeSun);
@@ -478,6 +564,7 @@ function addPalms(scene, sample, random, excluded) {
   }), SCENERY.palmCount);
   trunk.name = 'Palm trunks';
   crowns.name = 'Palm crowns';
+  trunk.castShadow = crowns.castShadow = true;
   const transform = new THREE.Object3D();
   const shade = new THREE.Color(PALETTE.tree);
   const gold = new THREE.Color(PALETTE.treeSun);
@@ -516,6 +603,7 @@ function addRocks(scene, sample, random, excluded) {
     SCENERY.rockCount,
   );
   rocks.name = 'Shore and slope rocks';
+  rocks.castShadow = true;
   const rock = new THREE.Object3D();
   const cool = new THREE.Color(PALETTE.rock);
   const warm = new THREE.Color(PALETTE.rockWarm);
@@ -612,7 +700,7 @@ function addHouses(scene, sample, random) {
 function addClouds(scene, random) {
   const clouds = new THREE.Group();
   clouds.name = 'Sunset clouds';
-  const blob = new THREE.IcosahedronGeometry(1, 0);
+  const blob = new THREE.IcosahedronGeometry(1, 1);
   const top = new THREE.MeshLambertMaterial({
     color: PALETTE.cloud, flatShading: true, emissive: '#795043',
   });
@@ -630,7 +718,7 @@ function addClouds(scene, random) {
       const y = i === 0 ? -4 : random() * 8 - 4;
       const z = (random() - 0.5) * 76;
       const puff = place(cloud, blob, i === 0 ? shade : top, x, y, z);
-      puff.scale.set(26 + random() * 38, 9 + random() * 6, 20 + random() * 18);
+      puff.scale.set(26 + random() * 38, 7 + random() * 5, 20 + random() * 18);
     }
     clouds.add(cloud);
   }
@@ -726,8 +814,9 @@ export function buildWorld(scene, seed = WORLD_SEED) {
   }
   const grid = heightGrid;
   const sample = (x, z) => sampleGrid(grid, x, z);
-  addSkyAndSea(scene);
-  addShallows(scene, sample);
+  const normalMap = waterNormalMap();
+  addSkyAndSea(scene, normalMap);
+  addShallows(scene, sample, normalMap);
   addClouds(scene, createRandom(seed + 99));
   addTerrain(scene, grid, seed);
   addRunway(scene);
@@ -756,5 +845,5 @@ export function buildWorld(scene, seed = WORLD_SEED) {
   addPalms(scene, sample, createRandom(seed + 79), excludeScatter);
   addRocks(scene, sample, createRandom(seed + 77), excludeScatter);
   addLighthouse(scene, sample);
-  return { heightAt: sample };
+  return { heightAt: sample, updateShadows: (position) => updateShadows(scene, position) };
 }

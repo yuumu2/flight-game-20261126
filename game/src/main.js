@@ -127,8 +127,9 @@ function paint(dt) {
   const state = flight.state;
   plane.group.position.copy(state.position);
   plane.group.rotation.set(state.pitch, -state.heading, -state.roll, 'YXZ');
+  world.updateShadows?.(state.position);
   plane.spinPropeller(dt, state.engineThrottle ?? state.throttle);
-  if (cockpitMode) plane.updateCockpit(state, state.position);
+  if (cockpitMode) plane.updateCockpit(state, state.position, course);
   // Preserve the staged wake at the end of its simulated run.
   const effectDt = shot === null ? dt : 0;
   wake.update(state, effectDt);

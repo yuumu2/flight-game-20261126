@@ -5,13 +5,13 @@ import { createCockpitTexture } from './cockpit.js';
 import { isOnRunway, isOnWaterLane, WORLD } from './world.js';
 
 function aircraftMaterials() {
-  const cream = new THREE.MeshStandardMaterial({ color: PALETTE.mailCream, roughness: 0.42 });
-  const red = new THREE.MeshStandardMaterial({ color: PALETTE.mailRed, roughness: 0.4 });
+  const cream = new THREE.MeshStandardMaterial({ color: PALETTE.mailCream, roughness: 0.34, metalness: 0.05 });
+  const red = new THREE.MeshStandardMaterial({ color: PALETTE.mailRed, roughness: 0.34 });
   const metal = new THREE.MeshStandardMaterial({ color: PALETTE.metal, metalness: 0.45, roughness: 0.38 });
   const glass = new THREE.MeshPhysicalMaterial({
     color: '#172834', metalness: 0.12, roughness: 0.23, clearcoat: 0.85, clearcoatRoughness: 0.16,
   });
-  const livery = new THREE.MeshStandardMaterial({ color: '#c58443', roughness: 0.46 });
+  const livery = new THREE.MeshStandardMaterial({ color: '#c58443', roughness: 0.40 });
   function navLight(color) {
     return new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 2.4 });
   }
@@ -124,9 +124,7 @@ function buildCockpit(materials, cockpit) {
   interior.name = 'Cockpit interior';
   interior.visible = false;
   const dark = new THREE.MeshStandardMaterial({ color: '#12161d', roughness: 0.85 });
-  // Fit the artwork to the visible upper part of the tilted panel.
-  cockpit.texture.repeat.y = 1.85;
-  cockpit.texture.offset.y = 1 - cockpit.texture.repeat.y;
+  const panelGray = new THREE.MeshStandardMaterial({ color: '#8f948b', roughness: 0.85 });
   const panelMaterial = new THREE.MeshBasicMaterial({
     map: cockpit.texture, toneMapped: false, depthTest: false, depthWrite: false,
   });
@@ -138,28 +136,35 @@ function buildCockpit(materials, cockpit) {
     return mesh;
   }
 
-  function brace(geometry, start, end) {
+  function brace(geometry, start, end, material = materials.metal) {
     const direction = end.clone().sub(start);
     const center = start.clone().lerp(end, 0.5);
-    const mesh = part(geometry, materials.metal, center.x, center.y, center.z);
+    const mesh = part(geometry, material, center.x, center.y, center.z);
     mesh.scale.y = direction.length();
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
   }
 
-  part(new THREE.BoxGeometry(1.6, 0.55, 0.16), dark, 0, 0.13, -1.06);
-  const instruments = part(new THREE.PlaneGeometry(1.45, 0.725), panelMaterial, 0, 0.16, -1.00);
-  instruments.rotation.x = -0.12;
+  part(new THREE.BoxGeometry(1.58, 0.78, 0.14), panelGray, 0, 0.13, -1.08);
+  const instruments = part(new THREE.PlaneGeometry(1.5, 0.75), panelMaterial, 0, 0.13, -1.005);
+  instruments.rotation.x = -0.10;
   // The dashboard backing intersects the tilted face, so paint the instruments over it.
   instruments.renderOrder = 1;
-  part(new THREE.BoxGeometry(1.65, 0.06, 0.46), dark, 0, 0.48, -0.98);
-  const post = new THREE.BoxGeometry(0.055, 1, 0.055);
+  part(new THREE.BoxGeometry(1.62, 0.05, 0.34), dark, 0, 0.545, -0.96);
+  const post = new THREE.BoxGeometry(0.038, 1, 0.045);
   for (const side of [-1, 1]) {
-    brace(post, new THREE.Vector3(side * 0.80, 0.46, -0.98), new THREE.Vector3(side * 0.60, 1.00, -0.68));
+    brace(post, new THREE.Vector3(side * 0.79, 0.50, -1.00), new THREE.Vector3(side * 0.56, 1.06, -0.615), dark);
   }
-  part(new THREE.BoxGeometry(1.26, 0.06, 0.08), materials.metal, 0, 1.00, -0.68);
+  part(new THREE.BoxGeometry(1.16, 0.038, 0.06), dark, 0, 1.06, -0.61);
+  brace(new THREE.BoxGeometry(0.030, 1, 0.045),
+    new THREE.Vector3(0, 0.52, -0.99), new THREE.Vector3(0, 1.06, -0.615), dark);
+  const cardBacking = part(new THREE.BoxGeometry(0.37, 0.145, 0.012), dark, 0.245, 0.79, -0.80);
+  cardBacking.rotation.x = -0.08;
+  const card = part(new THREE.PlaneGeometry(0.36, 0.135),
+    new THREE.MeshBasicMaterial({ map: cockpit.cardTexture, toneMapped: false }), 0.245, 0.79, -0.792);
+  card.rotation.x = -0.08;
   brace(new THREE.CylinderGeometry(0.028, 0.033, 1, 10),
-    new THREE.Vector3(0, -0.18, -0.80), new THREE.Vector3(0, 0.06, -0.72));
-  const yoke = part(new THREE.TorusGeometry(0.14, 0.025, 8, 20), dark, 0, 0.06, -0.72);
+    new THREE.Vector3(-0.36, -0.16, -0.82), new THREE.Vector3(-0.36, 0.03, -0.75));
+  const yoke = part(new THREE.TorusGeometry(0.13, 0.024, 8, 20), dark, -0.36, 0.05, -0.73);
   yoke.rotation.x = 1.15;
   part(new THREE.BoxGeometry(1.7, 0.05, 1.9), dark, 0, -0.48, -0.1);
   return interior;
@@ -197,6 +202,9 @@ export async function buildSeaplane() {
   const cockpit = createCockpitTexture();
   const interior = buildCockpit(materials, cockpit);
   group.add(interior);
+  group.traverse((part) => { if (part.isMesh) part.castShadow = true; });
+  blurDisc.castShadow = false;
+  interior.traverse((part) => { if (part.isMesh) part.castShadow = false; });
 
   function spinPropeller(dt, throttle) {
     const rotation = dt * (AIRCRAFT.propellerIdle + throttle * AIRCRAFT.propellerPower);
@@ -215,8 +223,8 @@ export async function buildSeaplane() {
     blurDisc.material.color.setHex(visible ? 0x24262a : 0xf3e9d2);
   }
 
-  function updateCockpit(flight, position) {
-    if (interior.visible) cockpit.draw(flight, position);
+  function updateCockpit(flight, position, course) {
+    if (interior.visible) cockpit.draw(flight, position, course);
   }
 
   return { group, propeller, spinPropeller, setCockpitVisible, updateCockpit };
