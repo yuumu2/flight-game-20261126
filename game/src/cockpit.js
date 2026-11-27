@@ -62,6 +62,31 @@ function drawZone(ctx, x, y, width, height) {
   }
 }
 
+function drawPanelTrim(ctx) {
+  ctx.strokeStyle = '#656c64';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(3, 3, 1018, 506);
+  ctx.strokeStyle = 'rgba(247,249,241,0.45)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(6, 6, 1012, 500);
+  for (const x of [10, 1014]) {
+    for (const y of [10, 124, 256, 388, 502]) {
+      dot(ctx, x, y, 3, '#565d56');
+      line(ctx, x - 1.2, y + 0.8, x + 1.2, y - 0.8, '#bbc2b7');
+    }
+  }
+}
+
+function drawInstrumentPlacards(ctx) {
+  const labels = ['AIRSPEED', 'ATTITUDE', 'ALTIMETER', 'VERTICAL SPEED', 'ENGINE RPM', 'FUEL'];
+  labels.forEach((label, i) => {
+    const x = 242 + (i % 3 - 1) * 63 * 2.36;
+    const y = i < 3 ? 245 : 410;
+    text(ctx, label, x, y, 11, panelInk, 'center');
+  });
+  text(ctx, 'POWER CONTROLS', 564, 306, 10, panelInk, 'center');
+}
+
 function drawQuadrant(ctx, throttle) {
   inset(ctx, 494, 88, 140, 208, '#14181d', '#4b5155');
   const levers = [
@@ -182,6 +207,7 @@ export function createCockpitTexture() {
   function draw(flight, position, course) {
     ctx.fillStyle = panel;
     ctx.fillRect(0, 0, 1024, 512);
+    drawPanelTrim(ctx);
     drawZone(ctx, 16, 64, 452, 364);
     drawZone(ctx, 484, 64, 160, 364);
     drawZone(ctx, 660, 64, 348, 364);
@@ -193,6 +219,7 @@ export function createCockpitTexture() {
 
     const throttle = THREE.MathUtils.clamp(flight.throttle, 0, 1);
     drawQuadrant(ctx, throttle);
+    drawInstrumentPlacards(ctx);
     inset(ctx, 676, 80, 316, 246, '#14181d');
     inset(ctx, 688, 92, 292, 222, '#0a141c');
     drawCockpitRadar(ctx, 834, 203, 98, flight, course, position);
@@ -203,11 +230,6 @@ export function createCockpitTexture() {
     text(ctx, 'XPNDR 1200', 690, 402, 15, amber);
     text(ctx, 'ADF 340', 842, 402, 15, '#7dff9a');
 
-    text(ctx, 'THR', 16, 470, 15, panelInk);
-    ctx.fillStyle = 'rgba(20,24,29,0.55)';
-    ctx.fillRect(64, 462, 380, 12);
-    ctx.fillStyle = cyan;
-    ctx.fillRect(64, 462, 380 * throttle, 12);
     text(ctx, 'DUSKMAIL ATOLL — SUNSET MAIL RUN', 724, 470, 13, panelInk, 'center');
 
     drawCard(card, course, position);
