@@ -52,6 +52,7 @@ function buildPrimitiveSeaplane(materials) {
   const floatBody = new THREE.CapsuleGeometry(0.26, 2.26, 5, 10);
   const strut = new THREE.BoxGeometry(0.1, 0.63, 0.13);
   const navBulb = new THREE.SphereGeometry(0.085, 10, 8);
+  const wings = [];
 
   function wingBrace(side, z) {
     const start = new THREE.Vector3(side * 0.92, -0.65, z);
@@ -65,11 +66,13 @@ function buildPrimitiveSeaplane(materials) {
 
   for (const side of [-1, 1]) {
     const panel = new THREE.Group();
+    panel.name = side < 0 ? 'Wing panel Port' : 'Wing panel Starboard';
     panel.position.set(side * 0.27, 0.18, -0.16);
     panel.rotation.z = side * 0.075;
     add(panel, wing, cream, side * 1.11, 0, 0);
     add(panel, wingTip, red, side * 2.43, 0, 0);
     group.add(panel);
+    wings.push(panel);
 
     const float = add(group, floatBody, cream, side * 0.91, -0.82, -0.09);
     float.rotation.x = Math.PI / 2;
@@ -102,8 +105,7 @@ function buildPrimitiveSeaplane(materials) {
   const spinner = add(propeller, new THREE.ConeGeometry(0.17, 0.3, 12), red, 0, 0, -0.1);
   spinner.rotation.x = -Math.PI / 2;
   group.add(propeller);
-  addPropellerBlur(group);
-  return { group, propeller };
+  return { group, propeller, wings };
 }
 
 function addPropellerBlur(group) {
@@ -114,6 +116,7 @@ function addPropellerBlur(group) {
   blurDisc.position.z = -1.88;
   blurDisc.name = 'Propeller blur disc';
   group.add(blurDisc);
+  return blurDisc;
 }
 
 function buildCockpit(materials, cockpit) {
@@ -143,20 +146,20 @@ function buildCockpit(materials, cockpit) {
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
   }
 
-  part(new THREE.BoxGeometry(1.7, 0.62, 0.16), dark, 0, 0.06, -1.0);
-  const instruments = part(new THREE.PlaneGeometry(1.56, 0.78), panelMaterial, 0, 0.10, -0.90);
+  part(new THREE.BoxGeometry(1.6, 0.55, 0.16), dark, 0, 0.13, -1.06);
+  const instruments = part(new THREE.PlaneGeometry(1.45, 0.725), panelMaterial, 0, 0.16, -1.00);
   instruments.rotation.x = -0.12;
   // The dashboard backing intersects the tilted face, so paint the instruments over it.
   instruments.renderOrder = 1;
-  part(new THREE.BoxGeometry(1.8, 0.06, 0.46), dark, 0, 0.44, -0.92);
+  part(new THREE.BoxGeometry(1.65, 0.06, 0.46), dark, 0, 0.48, -0.98);
   const post = new THREE.BoxGeometry(0.055, 1, 0.055);
   for (const side of [-1, 1]) {
-    brace(post, new THREE.Vector3(side * 0.78, 0.40, -0.92), new THREE.Vector3(side * 0.60, 1.00, -0.68));
+    brace(post, new THREE.Vector3(side * 0.80, 0.46, -0.98), new THREE.Vector3(side * 0.60, 1.00, -0.68));
   }
   part(new THREE.BoxGeometry(1.26, 0.06, 0.08), materials.metal, 0, 1.00, -0.68);
   brace(new THREE.CylinderGeometry(0.028, 0.033, 1, 10),
-    new THREE.Vector3(0, -0.30, -0.78), new THREE.Vector3(0, 0, -0.70));
-  const yoke = part(new THREE.TorusGeometry(0.17, 0.028, 8, 20), dark, 0, 0, -0.70);
+    new THREE.Vector3(0, -0.18, -0.80), new THREE.Vector3(0, 0.06, -0.72));
+  const yoke = part(new THREE.TorusGeometry(0.14, 0.025, 8, 20), dark, 0, 0.06, -0.72);
   yoke.rotation.x = 1.15;
   part(new THREE.BoxGeometry(1.7, 0.05, 1.9), dark, 0, -0.48, -0.1);
   return interior;
@@ -168,6 +171,7 @@ export async function buildSeaplane() {
   group.name = 'Duskmail seaplane';
   let propeller = null;
   let spinners = [];
+  let wings = [];
 
   try {
     const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.min.js');
@@ -177,16 +181,18 @@ export async function buildSeaplane() {
         part.material = materials[part.material.name];
       }
       if (part.name === 'Propeller' || part.name === 'PropellerSpinner') spinners.push(part);
+      if (part.name.startsWith('Wing')) wings.push(part);
     });
     if (spinners.length !== 2) throw new Error('Missing seaplane propeller parts');
     group.add(gltf.scene);
-    addPropellerBlur(group);
   } catch {
     const primitive = buildPrimitiveSeaplane(materials);
     group.add(primitive.group);
     propeller = primitive.propeller;
     spinners = [propeller];
+    wings = primitive.wings;
   }
+  const blurDisc = addPropellerBlur(group);
   const canopy = group.getObjectByName('Canopy');
   const cockpit = createCockpitTexture();
   const interior = buildCockpit(materials, cockpit);
@@ -203,6 +209,10 @@ export async function buildSeaplane() {
     interior.visible = visible;
     // The opaque exterior canopy would cover the view from the pilot's eye.
     if (canopy) canopy.visible = !visible;
+    for (const spinner of spinners) spinner.visible = !visible;
+    for (const wing of wings) wing.visible = !visible;
+    blurDisc.material.opacity = visible ? 0.05 : 0.15;
+    blurDisc.material.color.setHex(visible ? 0x24262a : 0xf3e9d2);
   }
 
   function updateCockpit(flight, position) {

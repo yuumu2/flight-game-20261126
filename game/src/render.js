@@ -72,7 +72,7 @@ export function createRenderer(canvas) {
 
   function updateCockpitCamera(flight) {
     cockpitRotation.set(flight.pitch, -flight.heading, -flight.roll);
-    cockpitEye.set(0, 0.55, -0.05).applyEuler(cockpitRotation).add(flight.position);
+    cockpitEye.set(0, 0.78, -0.05).applyEuler(cockpitRotation).add(flight.position);
     cockpitForward.set(0, 0, -1).applyEuler(cockpitRotation);
     camera.position.copy(cockpitEye);
     camera.up.copy(worldUp).applyEuler(cockpitRotation);
