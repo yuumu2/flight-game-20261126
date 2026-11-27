@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { COURSE, HUD, PALETTE, WATERLANE, VIEW, WORLD } from './config.js';
 import { waterlaneCenter, waterlaneTangent } from './world.js';
+import { drawAnnunciators, drawDigitalStrip, drawInstrumentRow } from './gauges.js';
 
 const amber = PALETTE.hudAmber;
 const cyan = PALETTE.hudCyan;
@@ -21,9 +22,14 @@ export function createHud(canvas) {
   let width;
   let height;
   let staged = false;
+  let cockpit = false;
 
   function setStaged(value) {
     staged = value;
+  }
+
+  function setCockpit(value) {
+    cockpit = value;
   }
 
   function resize() {
@@ -98,38 +104,6 @@ export function createHud(canvas) {
     ctx.fillStyle = cyan;
     ctx.fill();
     text(`HDG ${String(wrapDegrees(Math.round(degrees))).padStart(3, '0')}°`, center, y + 43, cyan, 13, 'center');
-  }
-
-  function attitude(flight, x, y, radius) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.clip();
-    ctx.fillStyle = HUD.sky;
-    ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-    ctx.translate(x, y);
-    ctx.rotate(-flight.roll);
-    const pitchScale = radius * 2.35;
-    const limit = radius * 0.85;
-    const horizon = THREE.MathUtils.clamp(flight.pitch * pitchScale, -limit, limit);
-    ctx.fillStyle = HUD.ground;
-    ctx.fillRect(-radius * 2, horizon, radius * 4, radius * 4);
-    line(-radius * 2, horizon, radius * 2, horizon, amber);
-    ctx.lineWidth = 2;
-    for (const degrees of [-20, -10, 10, 20]) {
-      const level = horizon + THREE.MathUtils.degToRad(degrees) * pitchScale;
-      line(-radius * 0.30, level, -radius * 0.10, level, HUD.muted);
-      line(radius * 0.10, level, radius * 0.30, level, HUD.muted);
-    }
-    ctx.restore();
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = amber;
-    ctx.stroke();
-    line(x - 17, y, x - 5, y, cyan);
-    line(x + 5, y, x + 17, y, cyan);
-    ctx.fillStyle = cyan;
-    ctx.fillRect(x - 1, y - 1, 2, 2);
   }
 
   function radar(flight, course, position, x, y, radius) {
@@ -256,81 +230,6 @@ export function createHud(canvas) {
     text(message, width / 2, y + 13.5, amber, 13, 'center', true);
   }
 
-  function dialAngle(fraction) {
-    return THREE.MathUtils.degToRad(-135 + 270 * fraction);
-  }
-
-  function gauge(cx, cy, radius, fraction, label, ticks, redStart) {
-    const face = radius * 0.84;
-    const dark = '#26303a';
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.fillStyle = '#0b0f16';
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius - 1, 0, Math.PI * 2);
-    ctx.strokeStyle = amber;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(cx, cy, face, 0, Math.PI * 2);
-    ctx.fillStyle = '#f3e9d2';
-    ctx.fill();
-
-    if (redStart !== undefined) {
-      ctx.beginPath();
-      ctx.arc(cx, cy, face * 0.86, dialAngle(redStart) - Math.PI / 2, dialAngle(1) - Math.PI / 2);
-      ctx.strokeStyle = '#c23b31';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    }
-
-    ctx.lineWidth = 1;
-    for (const tick of ticks) {
-      const angle = dialAngle(tick.fraction);
-      const x = Math.sin(angle) * face;
-      const y = -Math.cos(angle) * face;
-      line(cx + x * 0.78, cy + y * 0.78, cx + x * 0.92, cy + y * 0.92, dark);
-      if (tick.label !== null) text(tick.label, cx + x * 0.60, cy + y * 0.60, dark, 8, 'center');
-    }
-
-    const angle = dialAngle(THREE.MathUtils.clamp(fraction, 0, 1));
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    line(cx, cy, cx + Math.sin(angle) * face * 0.74, cy - Math.cos(angle) * face * 0.74, '#d35400');
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius * 0.10, 0, Math.PI * 2);
-    ctx.fillStyle = dark;
-    ctx.fill();
-    text(label, cx, cy + radius * 0.42, dark, 8, 'center');
-    ctx.restore();
-  }
-
-  function gaugeTicks(maximum, step, labelStep, labelUnit = 1) {
-    return Array.from({ length: maximum / step + 1 }, (_, i) => {
-      const value = i * step;
-      return { fraction: value / maximum, label: value % labelStep === 0 ? String(value / labelUnit) : null };
-    });
-  }
-
-  const speedTicks = gaugeTicks(160, 20, 40);
-  const altitudeTicks = gaugeTicks(3000, 250, 500, 100);
-  const rpmTicks = gaugeTicks(3000, 500, 1000, 1000);
-
-  function gaugeCluster(flight, position, compact, throttle) {
-    const x = width / 2;
-    const y = height - (compact ? 38 : 50);
-    const radius = compact ? 24 : 33;
-    const spacing = compact ? 54 : 80;
-    const backingWidth = compact ? 3 * spacing + 2 * radius + 16 : 242;
-    const backingHeight = compact ? 2 * radius + 18 : 84;
-    panel(x - backingWidth / 2, compact ? y - backingHeight / 2 : height - 91, backingWidth, backingHeight);
-    gauge(x - spacing, y, radius, flight.speed * HUD.knotsPerMetreSecond / 160, 'SPD KT', speedTicks, 130 / 160);
-    gauge(x, y, radius, Math.max(0, position.y) * HUD.feetPerMetre / 3000, 'ALT FT', altitudeTicks);
-    gauge(x + spacing, y, radius, (600 + throttle * 2100) / 3000, 'RPM', rpmTicks, 2600 / 3000);
-  }
-
   function draw(flight, course, screen, camera, position = flight.position) {
     ctx.clearRect(0, 0, width, height);
     if (screen !== 'play' && screen !== 'paused') {
@@ -343,22 +242,18 @@ export function createHud(canvas) {
     const margin = compact ? 9 : 20;
     const panelWidth = compact ? Math.min(170, width / 2 - margin * 1.5) : 207;
     const size = compact ? 18 : 26;
-    const leftEdge = margin + 10;
-    const rightEdge = margin + panelWidth - 10;
-    panel(margin, margin, panelWidth, 118);
-    readout('ALT', `${numberFormat.format(Math.max(0, position.y) * HUD.feetPerMetre)} FT`,
-      leftEdge, margin + 19, rightEdge, amber, size);
-    readout('SPD', `${numberFormat.format(flight.speed * HUD.knotsPerMetreSecond)} KT`,
-      leftEdge, margin + 46, rightEdge, cyan, size);
-    const throttle = THREE.MathUtils.clamp(flight.throttle, 0, 1);
-    readout('THR', `${Math.round(throttle * 100)}%`, leftEdge, margin + 73, rightEdge, cyan, size);
-    const barWidth = rightEdge - leftEdge;
-    ctx.fillStyle = HUD.border;
-    ctx.fillRect(leftEdge, margin + 87, barWidth, 5);
-    ctx.fillStyle = cyan;
-    ctx.fillRect(leftEdge, margin + 87, barWidth * throttle, 5);
-    if (flight.stallWarn) {
-      text('STALL', leftEdge, margin + 105, '#ff5a4a', 11, 'left', true);
+    if (!cockpit) {
+      const leftEdge = margin + 10;
+      const rightEdge = margin + panelWidth - 10;
+      panel(margin, margin, panelWidth, 76);
+      const throttle = THREE.MathUtils.clamp(flight.throttle, 0, 1);
+      readout('THR', `${Math.round(throttle * 100)}%`, leftEdge, margin + 19, rightEdge, cyan, size);
+      const barWidth = rightEdge - leftEdge;
+      ctx.fillStyle = HUD.border;
+      ctx.fillRect(leftEdge, margin + 38, barWidth, 5);
+      ctx.fillStyle = cyan;
+      ctx.fillRect(leftEdge, margin + 38, barWidth * throttle, 5);
+      drawAnnunciators(ctx, leftEdge, margin + 52, flight);
     }
 
     const right = width - margin - panelWidth;
@@ -373,15 +268,29 @@ export function createHud(canvas) {
 
     const x = width / 2;
     const y = height / 2;
-    line(x - 10, y, x - 3, y, amber);
-    line(x + 3, y, x + 10, y, amber);
-    line(x, y - 7, x, y - 3, amber);
-    line(x, y + 3, x, y + 7, amber);
+    if (!cockpit) {
+      line(x - 10, y, x - 3, y, amber);
+      line(x + 3, y, x + 10, y, amber);
+      line(x, y - 7, x, y - 3, amber);
+      line(x, y + 3, x, y + 7, amber);
+    }
     drawTarget(course.target, camera, position);
-    attitude(flight, width * 0.37, height - (compact ? 74 : 88), compact ? 33 : 43);
     const radarRadius = compact ? 52 : 70;
+    const radarBox = 2 * radarRadius + 14;
+    panel(width - margin - radarBox, height - margin - radarBox, radarBox, radarBox);
     radar(flight, course, position, width - margin - radarRadius, height - margin - radarRadius, radarRadius);
-    gaugeCluster(flight, position, compact, throttle);
+
+    const radius = compact ? 21 : 28;
+    const spacing = radius * 2.36;
+    const rowWidth = 5 * spacing + 2 * radius;
+    const panelW = rowWidth + 28;
+    const panelH = (compact ? 20 : 26) + 2 * radius + 16;
+    const panelY = height - panelH - (compact ? 6 : 10);
+    if (!cockpit) {
+      panel(x - panelW / 2, panelY, panelW, panelH);
+      drawDigitalStrip(ctx, x, panelY + (compact ? 13 : 17), compact ? 13 : 17, flight, position);
+      drawInstrumentRow(ctx, x, panelY + panelH - radius - 8, radius, flight, position);
+    }
 
     if (screen === 'paused') {
       ctx.fillStyle = HUD.shade;
@@ -393,9 +302,9 @@ export function createHud(canvas) {
       const controls = compact ? '↑↓ Pitch   ←→ Roll   W/S Throttle   P Pause'
         : '↑ / ↓ Pitch    ← / → or A / D Roll    W / S Throttle    P Pause';
       const hint = flight.grounded ? 'Hold W to accelerate, then ↑ to lift off' : controls;
-      text(hint, margin, height - 21, HUD.muted, compact ? 10 : 12);
+      text(hint, margin, panelY - 8, HUD.muted, compact ? 10 : 12);
     }
   }
 
-  return { draw, setStaged };
+  return { draw, setStaged, setCockpit };
 }

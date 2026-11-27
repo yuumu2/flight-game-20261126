@@ -1,6 +1,7 @@
 // Builds the mail seaplane and updates its flight and touchdown state.
 import * as THREE from 'three';
-import { AIRCRAFT, PALETTE, STALL } from './config.js';
+import { AIRCRAFT, FUEL, PALETTE, STALL } from './config.js';
+import { createCockpitTexture } from './cockpit.js';
 import { isOnRunway, isOnWaterLane, WORLD } from './world.js';
 
 function aircraftMaterials() {
@@ -43,6 +44,7 @@ function buildPrimitiveSeaplane(materials) {
   const cowl = add(group, new THREE.CylinderGeometry(0.43, 0.49, 0.56, 16), red, 0, 0, -1.48);
   cowl.rotation.x = -Math.PI / 2;
   const canopy = add(group, new THREE.SphereGeometry(1, 16, 10), glass, 0, 0.36, -0.43);
+  canopy.name = 'Canopy';
   canopy.scale.set(0.4, 0.49, 0.75);
 
   const wing = new THREE.BoxGeometry(2.22, 0.13, 0.94);
@@ -114,6 +116,52 @@ function addPropellerBlur(group) {
   group.add(blurDisc);
 }
 
+function buildCockpit(materials, cockpit) {
+  const interior = new THREE.Group();
+  interior.name = 'Cockpit interior';
+  interior.visible = false;
+  const dark = new THREE.MeshStandardMaterial({ color: '#12161d', roughness: 0.85 });
+  // Fit the artwork to the visible upper part of the tilted panel.
+  cockpit.texture.repeat.y = 1.85;
+  cockpit.texture.offset.y = 1 - cockpit.texture.repeat.y;
+  const panelMaterial = new THREE.MeshBasicMaterial({
+    map: cockpit.texture, toneMapped: false, depthTest: false, depthWrite: false,
+  });
+
+  function part(geometry, material, x, y, z) {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    interior.add(mesh);
+    return mesh;
+  }
+
+  function brace(geometry, start, end) {
+    const direction = end.clone().sub(start);
+    const center = start.clone().lerp(end, 0.5);
+    const mesh = part(geometry, materials.metal, center.x, center.y, center.z);
+    mesh.scale.y = direction.length();
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+  }
+
+  part(new THREE.BoxGeometry(1.7, 0.62, 0.16), dark, 0, 0.06, -1.0);
+  const instruments = part(new THREE.PlaneGeometry(1.56, 0.78), panelMaterial, 0, 0.10, -0.90);
+  instruments.rotation.x = -0.12;
+  // The dashboard backing intersects the tilted face, so paint the instruments over it.
+  instruments.renderOrder = 1;
+  part(new THREE.BoxGeometry(1.8, 0.06, 0.46), dark, 0, 0.44, -0.92);
+  const post = new THREE.BoxGeometry(0.055, 1, 0.055);
+  for (const side of [-1, 1]) {
+    brace(post, new THREE.Vector3(side * 0.78, 0.40, -0.92), new THREE.Vector3(side * 0.60, 1.00, -0.68));
+  }
+  part(new THREE.BoxGeometry(1.26, 0.06, 0.08), materials.metal, 0, 1.00, -0.68);
+  brace(new THREE.CylinderGeometry(0.028, 0.033, 1, 10),
+    new THREE.Vector3(0, -0.30, -0.78), new THREE.Vector3(0, 0, -0.70));
+  const yoke = part(new THREE.TorusGeometry(0.17, 0.028, 8, 20), dark, 0, 0, -0.70);
+  yoke.rotation.x = 1.15;
+  part(new THREE.BoxGeometry(1.7, 0.05, 1.9), dark, 0, -0.48, -0.1);
+  return interior;
+}
+
 export async function buildSeaplane() {
   const materials = aircraftMaterials();
   const group = new THREE.Group();
@@ -139,6 +187,10 @@ export async function buildSeaplane() {
     propeller = primitive.propeller;
     spinners = [propeller];
   }
+  const canopy = group.getObjectByName('Canopy');
+  const cockpit = createCockpitTexture();
+  const interior = buildCockpit(materials, cockpit);
+  group.add(interior);
 
   function spinPropeller(dt, throttle) {
     const rotation = dt * (AIRCRAFT.propellerIdle + throttle * AIRCRAFT.propellerPower);
@@ -147,7 +199,17 @@ export async function buildSeaplane() {
     }
   }
 
-  return { group, propeller, spinPropeller };
+  function setCockpitVisible(visible) {
+    interior.visible = visible;
+    // The opaque exterior canopy would cover the view from the pilot's eye.
+    if (canopy) canopy.visible = !visible;
+  }
+
+  function updateCockpit(flight, position) {
+    if (interior.visible) cockpit.draw(flight, position);
+  }
+
+  return { group, propeller, spinPropeller, setCockpitVisible, updateCockpit };
 }
 
 export function createFlight() {
@@ -157,6 +219,7 @@ export function createFlight() {
     speed: AIRCRAFT.minSpeed, throttle: AIRCRAFT.initialThrottle,
     verticalSpeed: 0, grounded: false, crashed: false, landed: false,
     aoa: 0, stall: 0, stallWarn: false, onWater: false, touchdownSurface: null,
+    fuel: 1, flameout: false, engineThrottle: AIRCRAFT.initialThrottle,
   };
   const velocity = new THREE.Vector3();
   const desiredVelocity = new THREE.Vector3();
@@ -178,6 +241,9 @@ export function createFlight() {
     state.roll = 0;
     state.grounded = parked;
     state.throttle = parked ? 0 : AIRCRAFT.initialThrottle;
+    state.fuel = 1;
+    state.flameout = false;
+    state.engineThrottle = parked ? 0 : AIRCRAFT.initialThrottle;
     state.speed = parked ? 0 : THREE.MathUtils.lerp(AIRCRAFT.minSpeed, AIRCRAFT.maxSpeed, state.throttle);
     forwardVector(velocity).multiplyScalar(state.speed);
     state.verticalSpeed = 0;
@@ -195,6 +261,12 @@ export function createFlight() {
     const pitch = input.pitchInput();
     const roll = state.grounded ? 0 : input.rollInput();
     state.throttle = THREE.MathUtils.clamp(state.throttle + input.throttleInput() * AIRCRAFT.throttleRate * dt, 0, 1);
+    state.engineThrottle = state.flameout ? 0 : state.throttle;
+    if (!state.flameout) {
+      const burnRate = (FUEL.idleFraction + (1 - FUEL.idleFraction) * state.throttle) / FUEL.capacitySeconds;
+      state.fuel = Math.max(0, state.fuel - burnRate * dt);
+      if (state.fuel <= 0) { state.flameout = true; state.engineThrottle = 0; }
+    }
     state.roll = THREE.MathUtils.damp(state.roll, roll * AIRCRAFT.maxRoll,
       roll ? AIRCRAFT.rollRate : AIRCRAFT.autoLevelRoll, dt);
     const gamma = Math.asin(THREE.MathUtils.clamp(velocity.y / Math.max(velocity.length(), 1), -1, 1));
@@ -213,9 +285,9 @@ export function createFlight() {
       pitchRate, dt);
     state.pitch -= state.stall * STALL.noseDropRate * dt;
 
-    const throttleSpeed = THREE.MathUtils.lerp(AIRCRAFT.minSpeed, AIRCRAFT.maxSpeed, state.throttle);
+    const throttleSpeed = THREE.MathUtils.lerp(AIRCRAFT.minSpeed, AIRCRAFT.maxSpeed, state.engineThrottle);
     const targetSpeed = state.grounded
-      ? Math.max(0, (state.throttle - AIRCRAFT.takeoffThrottle) / (1 - AIRCRAFT.takeoffThrottle)) * AIRCRAFT.maxSpeed
+      ? Math.max(0, (state.engineThrottle - AIRCRAFT.takeoffThrottle) / (1 - AIRCRAFT.takeoffThrottle)) * AIRCRAFT.maxSpeed
       : THREE.MathUtils.clamp(throttleSpeed - state.pitch * AIRCRAFT.pitchSpeedFactor,
         AIRCRAFT.minSpeed, AIRCRAFT.maxSpeed);
     const waterDrag = state.grounded && state.speed < AIRCRAFT.takeoffSpeed

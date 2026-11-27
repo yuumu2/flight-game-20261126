@@ -1,6 +1,7 @@
 // Tracks held flight controls and queues discrete menu actions.
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
+export const ACTION_VIEW = 4;
 
 const pitchUp = ['ArrowUp'];
 const pitchDown = ['ArrowDown'];
@@ -12,6 +13,7 @@ const controls = new Set([...pitchUp, ...pitchDown, ...rollRight, ...rollLeft, .
 const actionKeys = new Map([
   ['Space', ACTION_CONFIRM], ['Enter', ACTION_CONFIRM],
   ['KeyP', ACTION_PAUSE], ['Escape', ACTION_PAUSE],
+  ['KeyC', ACTION_VIEW], ['KeyV', ACTION_VIEW],
 ]);
 
 export function createInput(target = window) {

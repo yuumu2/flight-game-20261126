@@ -1,5 +1,6 @@
 // Centralizes world, flight, course, and rendering settings.
 export const STEP = 1 / 60;
+export const FUEL = { capacitySeconds: 300, idleFraction: 0.22, lowFraction: 0.25, criticalFraction: 0.10 };
 export const TRAILS = { enabled: false };
 export const WORLD_SEED = 302;
 export const DEFAULT_SEED = WORLD_SEED;
@@ -45,6 +46,7 @@ export const PALETTE = {
   skyZenith: '#434c75', skyMid: '#885870', horizon: '#ee8949',
   sun: '#ffb36b', fog: '#f2a05e', sea: '#1d6a80', seaEmissive: '#07293a', sand: '#dcbd82',
   grassLow: '#6c8955', grassHigh: '#a99a60', rock: '#777c74', rockWarm: '#8d7f70', snow: '#f4efe6',
+  grassBright: '#86b364', forest: '#3a6b34', turquoise: '#8fd8cc', lagoon: '#2f9db4',
   ring: '#ff9e4a', ringNext: '#ffc46b', ringPassed: '#57e6a3',
   hudAmber: '#ffc46b', hudCyan: '#7fe7ff',
   asphalt: '#43484f', centerline: '#fffcf5', chalk: '#fff3d8', edgeLight: '#ffe5a5', windsock: '#ff782f',
@@ -60,7 +62,7 @@ export const SCENERY = {
   radius: 12000, fogNear: 1200, fogFar: 8500, sunElevation: 12, sunAzimuth: 238,
   sunlight: 1.6, ambient: 0.85, seaRoughness: 0.2,
   runwayLift: 0.15, dashSpacing: 24, dashLength: 12, dashWidth: 2, lightSpacing: 34,
-  treeCount: 980, palmCount: 280, treeAttempts: 10000, treeMinHeight: 11, treeMaxHeight: 74, treeMaxSlope: 0.44,
+  treeCount: 1500, palmCount: 280, treeAttempts: 22000, treeMinHeight: 11, treeMaxHeight: 74, treeMaxSlope: 0.44,
   treeRunwayBuffer: 125, treeMinSize: 5, treeSizeRange: 11,
   coastSearch: 460, coastStep: 12, coastRunwayBuffer: 60,
 };

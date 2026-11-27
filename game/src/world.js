@@ -1,5 +1,6 @@
 // Generates the shared elevation grid and builds the atoll scenery.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.min.js';
 import { COURSE, PALETTE, RUNWAY, SCENERY, TERRAIN, WATERLANE, WORLD, WORLD_SEED } from './config.js';
 import { createRandom, fbm, smoothstep, valueNoise } from './random.js';
 
@@ -174,11 +175,56 @@ function addSkyAndSea(scene) {
   scene.add(sea);
 }
 
+function addShallows(scene, sample) {
+  const geometry = new THREE.PlaneGeometry(5600, 5600, 120, 120);
+  geometry.rotateX(-Math.PI / 2);
+  const positions = geometry.getAttribute('position');
+  const colors = new Float32Array(positions.count * 3);
+  const foam = new THREE.Color(PALETTE.foam);
+  const turquoise = new THREE.Color(PALETTE.turquoise);
+  const lagoon = new THREE.Color(PALETTE.lagoon);
+  const sea = new THREE.Color(PALETTE.sea);
+  const color = new THREE.Color();
+  for (let i = 0; i < positions.count; i++) {
+    const depth = -sample(positions.getX(i), positions.getZ(i));
+    if (depth <= 0.35) color.copy(foam).lerp(turquoise, smoothstep(0, 0.35, depth));
+    else if (depth <= 2.4) color.copy(turquoise).lerp(lagoon, smoothstep(0.35, 2.4, depth));
+    else color.copy(lagoon).lerp(sea, smoothstep(2.4, 6.5, depth));
+    color.toArray(colors, i * 3);
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const shallows = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.32, metalness: 0,
+  }));
+  shallows.name = 'Lagoon shallows';
+  shallows.position.y = WORLD.seaLevel + 0.05;
+  scene.add(shallows);
+}
+
 function slopeAt(sample, x, z) {
   return Math.hypot(
     sample(x + spacing, z) - sample(x - spacing, z),
     sample(x, z + spacing) - sample(x, z - spacing),
   ) / (2 * spacing);
+}
+
+function terrainGrain(seed) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const image = ctx.createImageData(canvas.width, canvas.height);
+  const random = createRandom(seed + 140);
+  for (let i = 0; i < image.data.length; i += 4) {
+    const grey = 226 + Math.floor(random() * 30);
+    image.data[i] = image.data[i + 1] = image.data[i + 2] = grey;
+    image.data[i + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(160, 160);
+  texture.anisotropy = 4;
+  return texture;
 }
 
 function addTerrain(scene, grid, seed) {
@@ -188,6 +234,8 @@ function addTerrain(scene, grid, seed) {
   const colors = new Float32Array(positions.count * 3);
   const lowGrass = new THREE.Color(PALETTE.grassLow);
   const highGrass = new THREE.Color(PALETTE.grassHigh);
+  const brightGrass = new THREE.Color(PALETTE.grassBright);
+  const forest = new THREE.Color(PALETTE.forest);
   const rock = new THREE.Color(PALETTE.rock);
   const warmRock = new THREE.Color(PALETTE.rockWarm);
   const color = new THREE.Color();
@@ -201,16 +249,24 @@ function addTerrain(scene, grid, seed) {
     const y = grid[i];
     const broad = valueNoise(x / 175, z / 175, seed + 117);
     const detail = valueNoise(x / 46, z / 46, seed + 118);
+    const patch = valueNoise(x / 330, z / 330, seed + 131);
+    const micro = valueNoise(x / 15, z / 15, seed + 119);
     const dryness = smoothstep(18, 76, y + (broad - 0.5) * 48);
     const steepness = 1 - normals.getY(i);
     const exposed = Math.max(smoothstep(0.07, 0.34, steepness), smoothstep(73, 115, y));
     stone.copy(rock).lerp(warmRock, broad);
-    color.copy(lowGrass).lerp(highGrass, dryness).lerp(stone, exposed)
-      .multiplyScalar(0.89 + broad * 0.16 + detail * 0.10);
+    const meadow = smoothstep(2, 16, y) * (1 - dryness) * 0.5;
+    const forestMask = smoothstep(0.54, 0.72, patch) * smoothstep(4, 10, y)
+      * (1 - smoothstep(55, 75, y)) * (1 - exposed);
+    color.copy(lowGrass).lerp(highGrass, dryness).lerp(brightGrass, meadow)
+      .lerp(forest, forestMask * 0.75).lerp(stone, exposed)
+      .multiplyScalar(0.88 + broad * 0.14 + detail * 0.08 + micro * 0.10);
     color.toArray(colors, i * 3);
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const material = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 });
+  const material = new THREE.MeshStandardMaterial({
+    map: terrainGrain(seed), vertexColors: true, flatShading: true, roughness: 1,
+  });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.biomeFoam = { value: new THREE.Color(PALETTE.foam) };
     shader.uniforms.biomeSand = { value: new THREE.Color(PALETTE.sand) };
@@ -338,12 +394,23 @@ function addWaterLane(scene, seed) {
 }
 
 function addTrees(scene, sample, random, excluded) {
+  const seed = gridSeed;
+  const canopy = mergeGeometries([
+    new THREE.ConeGeometry(1, 1.6, 7).translate(0, 0.8, 0),
+    new THREE.ConeGeometry(0.68, 1.3, 7).translate(0, 1.95, 0),
+  ]);
   const trees = new THREE.InstancedMesh(
-    new THREE.ConeGeometry(1, 1, 6),
+    canopy,
     new THREE.MeshStandardMaterial({ flatShading: true, roughness: 1 }),
     SCENERY.treeCount,
   );
   trees.name = 'Atoll trees';
+  const trunks = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.13, 0.2, 1, 5),
+    new THREE.MeshStandardMaterial({ color: '#6b4a2f', flatShading: true, roughness: 1 }),
+    SCENERY.treeCount,
+  );
+  trunks.name = 'Atoll tree trunks';
   const tree = new THREE.Object3D();
   const shade = new THREE.Color(PALETTE.tree);
   const sun = new THREE.Color(PALETTE.treeSun);
@@ -355,18 +422,26 @@ function addTrees(scene, sample, random, excluded) {
     const y = sample(x, z);
     if (y < SCENERY.treeMinHeight || y > SCENERY.treeMaxHeight || slopeAt(sample, x, z) > SCENERY.treeMaxSlope) continue;
     if (excluded(x, z, SCENERY.treeRunwayBuffer)) continue;
+    const cluster = valueNoise(x / 300, z / 300, seed + 131);
+    if (cluster <= 0.52 && random() >= 0.15) continue;
     const size = SCENERY.treeMinSize + random() * SCENERY.treeSizeRange;
-    tree.position.set(x, y + size * 0.43, z);
     const angle = random() * Math.PI * 2;
-    tree.scale.set(size * (0.23 + 0.14 * Math.cos(angle) ** 2), size, size * 0.29);
+    tree.position.set(x, y + size * 0.16, z);
+    tree.scale.set(size * 0.14, size * 0.34, size * 0.14);
     tree.rotation.set(Math.sin(angle) * 0.10, angle, Math.cos(angle) * 0.08);
+    tree.updateMatrix();
+    trunks.setMatrixAt(count, tree.matrix);
+    tree.position.set(x, y + size * 0.30, z);
+    tree.scale.setScalar(size * 0.30);
+    tree.rotation.set(0, angle, 0);
     tree.updateMatrix();
     trees.setMatrixAt(count, tree.matrix);
     trees.setColorAt(count, color.copy(shade).lerp(sun, random()));
     count++;
   }
   trees.count = count;
-  scene.add(trees);
+  trunks.count = count;
+  scene.add(trees, trunks);
 }
 
 function isNearRunway(x, z, margin) {
@@ -652,6 +727,7 @@ export function buildWorld(scene, seed = WORLD_SEED) {
   const grid = heightGrid;
   const sample = (x, z) => sampleGrid(grid, x, z);
   addSkyAndSea(scene);
+  addShallows(scene, sample);
   addClouds(scene, createRandom(seed + 99));
   addTerrain(scene, grid, seed);
   addRunway(scene);

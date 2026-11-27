@@ -34,14 +34,21 @@ export function stageShot(name, { flight, course, renderer, heightAt, wake }) {
     const lookAt = position.clone().addScaledVector(forward, 38);
     lookAt.y += 0.5;
     renderer.setShotCamera(cameraPosition, lookAt);
-  } else if (name === 'ring') {
+  } else if (name === 'ring' || name === 'cockpit') {
     const target = course.ringPositions[2];
     const normal = course.ringNormals[2];
     const direction = normal.clone().setY(0).normalize();
-    const position = target.clone().addScaledVector(direction, -30);
+    const cockpit = name === 'cockpit';
+    const position = target.clone().addScaledVector(direction, cockpit ? -46 : -30);
+    if (cockpit) position.y -= 3;
     flight.reset(position, headingFor(direction));
-    Object.assign(flight.state, { speed: 48, roll: radians(6), throttle: 0.8 });
+    Object.assign(flight.state, { speed: 48, roll: radians(6), throttle: 0.8, engineThrottle: 0.8, fuel: cockpit ? 0.62 : 0.66 });
     Object.assign(course.state, { nextIndex: 2, ringsPassed: 2, elapsed: 68, score: 200 });
+    if (cockpit) {
+      renderer.updateCockpitCamera(flight.state);
+      course.updateVisuals();
+      return { screen: 'play', cameraMode: 'cockpit' };
+    }
     renderer.updateCamera(flight.state, STEP);
   } else if (name === 'bank') {
     const target = course.ringPositions[4];
@@ -55,7 +62,9 @@ export function stageShot(name, { flight, course, renderer, heightAt, wake }) {
     position.y -= 14;
     const direction = target.clone().addScaledVector(perpendicular, 6).sub(position).normalize();
     flight.reset(position, headingFor(direction));
-    Object.assign(flight.state, { speed: 52, roll: radians(42), pitch: Math.asin(direction.y), throttle: 0.85 });
+    Object.assign(flight.state, {
+      speed: 52, roll: radians(42), pitch: Math.asin(direction.y), throttle: 0.85, engineThrottle: 0.85, fuel: 0.7,
+    });
     Object.assign(course.state, { nextIndex: 4, ringsPassed: 4, elapsed: 121, score: 400 });
     const cameraPosition = position.clone().addScaledVector(direction, -13);
     cameraPosition.y += 4.5;
@@ -65,6 +74,7 @@ export function stageShot(name, { flight, course, renderer, heightAt, wake }) {
     const position = waterlaneCenter.clone().addScaledVector(waterlaneTangent, 40);
     position.y = WORLD.seaLevel + AIRCRAFT.groundClearance;
     flight.reset(position, waterlaneHeading + Math.PI, true);
+    flight.state.fuel = 0.34;
     const elapsed = 192;
     const landingQuality = 465;
     const timeBonus = landingTimeBonus(elapsed);

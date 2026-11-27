@@ -4,7 +4,7 @@ import { AIRCRAFT, BEST_KEY, COURSE, DEFAULT_SEED, STEP, VIEW, WATERLANE, WORLD 
 import { buildWorld, waterlaneCenter, waterlaneHeading, waterlaneTangent } from './world.js';
 import { buildSeaplane, createFlight } from './aircraft.js';
 import { createCourse, landingLabel } from './course.js';
-import { ACTION_CONFIRM, ACTION_PAUSE, createInput } from './input.js';
+import { ACTION_CONFIRM, ACTION_PAUSE, ACTION_VIEW, createInput } from './input.js';
 import { createHud, formatTime } from './hud.js';
 import { createRenderer } from './render.js';
 import { stageShot } from './shots.js';
@@ -42,6 +42,14 @@ let screen = 'title';
 let accumulator = 0;
 let previousFrame;
 let orbit = 0;
+let cockpitMode = false;
+
+function applyCockpit(on) {
+  cockpitMode = on;
+  view.setCameraMode(on ? 'cockpit' : 'chase');
+  plane.setCockpitVisible(on);
+  hud.setCockpit(on);
+}
 
 function show(nextScreen) {
   screen = nextScreen;
@@ -74,6 +82,9 @@ function showResult(staged = false) {
     : flight.state.touchdownSurface === 'water' ? landingLabel(0)
       : run.ringsPassed < COURSE.ringCount ? 'Course incomplete' : landingLabel(run.landingQuality);
   const delivery = flight.state.crashed ? 'Lost — aircraft down'
+    : flight.state.flameout && flight.state.touchdownSurface === 'lane' && run.ringsPassed === COURSE.ringCount
+      ? 'Delivered — dead-stick landing'
+    : flight.state.flameout && flight.state.touchdownSurface === 'water' ? 'Ditched — out of fuel'
     : flight.state.touchdownSurface === 'lane' && run.ringsPassed === COURSE.ringCount ? `Delivered — ${landingLabel(run.landingQuality)} landing`
     : flight.state.touchdownSurface === 'water' ? 'Aboard — set down off the lane'
     : flight.state.landed ? 'Aboard — down off the lane'
@@ -84,6 +95,7 @@ function showResult(staged = false) {
     ['Delivery', delivery],
     ['Rings', `${run.ringsPassed} / ${COURSE.ringCount}`],
     ['Time', formatTime(run.elapsed)],
+    ['Fuel remaining', `${Math.round(flight.state.fuel * 100)}%`],
     ['Landing', landing],
     ['Time bonus', numberFormat.format(run.timeBonus)],
     ['Total', numberFormat.format(run.score)],
@@ -106,7 +118,8 @@ function resetRun() {
   wake.reset();
   trails.reset();
   course.reset(spawn);
-  view.updateCamera(flight.state, 0, true);
+  if (cockpitMode) view.updateCockpitCamera(flight.state);
+  else view.updateCamera(flight.state, 0, true);
   accumulator = 0;
 }
 
@@ -114,7 +127,8 @@ function paint(dt) {
   const state = flight.state;
   plane.group.position.copy(state.position);
   plane.group.rotation.set(state.pitch, -state.heading, -state.roll, 'YXZ');
-  plane.spinPropeller(dt, state.throttle);
+  plane.spinPropeller(dt, state.engineThrottle ?? state.throttle);
+  if (cockpitMode) plane.updateCockpit(state, state.position);
   // Preserve the staged wake at the end of its simulated run.
   const effectDt = shot === null ? dt : 0;
   wake.update(state, effectDt);
@@ -134,6 +148,7 @@ function frame(now) {
     accumulator = 0;
     show(screen === 'play' ? 'paused' : 'play');
   }
+  if ((actions & ACTION_VIEW) && screen === 'play') applyCockpit(!cockpitMode);
 
   if (screen === 'title') {
     orbit += dt * VIEW.orbitRate;
@@ -146,7 +161,8 @@ function frame(now) {
       course.update(course.state, flight.state, STEP);
       accumulator -= STEP;
     }
-    view.updateCamera(flight.state, dt);
+    if (cockpitMode) view.updateCockpitCamera(flight.state);
+    else view.updateCamera(flight.state, dt);
     if (course.state.finished) showResult();
   }
   paint(screen === 'play' || screen === 'title' ? dt : 0);
@@ -158,6 +174,7 @@ if (shot !== null) {
   hud.setStaged(true);
   if (shot === 'finish') result.classList.add('shot-side');
   const staged = stageShot(shot, { scene, flight, course, renderer: view, heightAt: world.heightAt, wake });
+  if (staged.cameraMode === 'cockpit') applyCockpit(true);
   if (shot === 'bank') trails.seedArc(flight.state);
   if (staged.screen === 'over') showResult(true);
   else show(staged.screen);

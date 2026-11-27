@@ -12,8 +12,12 @@ export function createRenderer(canvas) {
   const chasePosition = new THREE.Vector3();
   const target = new THREE.Vector3();
   const worldUp = new THREE.Vector3(0, 1, 0);
+  const cockpitRotation = new THREE.Euler(0, 0, 0, 'YXZ');
+  const cockpitEye = new THREE.Vector3();
+  const cockpitForward = new THREE.Vector3();
   let chaseActive = false;
   let buffetClock = 0;
+  let cameraMode = 'chase';
 
   function resize() {
     const width = window.innerWidth;
@@ -56,9 +60,29 @@ export function createRenderer(canvas) {
     camera.lookAt(lookAt);
   }
 
+  function setCameraMode(mode) {
+    cameraMode = mode;
+    camera.near = mode === 'cockpit' ? 0.1 : VIEW.near;
+    camera.updateProjectionMatrix();
+  }
+
+  function getCameraMode() {
+    return cameraMode;
+  }
+
+  function updateCockpitCamera(flight) {
+    cockpitRotation.set(flight.pitch, -flight.heading, -flight.roll);
+    cockpitEye.set(0, 0.55, -0.05).applyEuler(cockpitRotation).add(flight.position);
+    cockpitForward.set(0, 0, -1).applyEuler(cockpitRotation);
+    camera.position.copy(cockpitEye);
+    camera.up.copy(worldUp).applyEuler(cockpitRotation);
+    camera.lookAt(cockpitForward.add(cockpitEye));
+    chaseActive = false;
+  }
+
   function render(scene, activeCamera = camera) {
     renderer.render(scene, activeCamera);
   }
 
-  return { renderer, camera, updateCamera, setShotCamera, render };
+  return { renderer, camera, updateCamera, setShotCamera, setCameraMode, getCameraMode, updateCockpitCamera, render };
 }
