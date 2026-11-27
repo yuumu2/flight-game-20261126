@@ -1,13 +1,13 @@
 // Stages deterministic flight poses and camera views for the four screenshots.
 import * as THREE from 'three';
-import { AIRCRAFT, COURSE, STEP, VIEW, WATERLANE, WORLD } from './config.js';
+import { AIRCRAFT, COURSE, SCENERY, STEP, VIEW, WATERLANE, WORLD } from './config.js';
 import { landingTimeBonus } from './course.js';
 import { waterlaneCenter, waterlaneHeading, waterlaneTangent } from './world.js';
 
 const radians = THREE.MathUtils.degToRad;
 const headingFor = (direction) => Math.atan2(direction.x, -direction.z);
 
-export function stageShot(name, { flight, course, renderer, heightAt, wake }) {
+export function stageShot(name, { scene, flight, course, renderer, heightAt, wake }) {
   course.reset();
   let screen = 'play';
   if (name === 'takeoff') {
@@ -34,22 +34,42 @@ export function stageShot(name, { flight, course, renderer, heightAt, wake }) {
     const lookAt = position.clone().addScaledVector(forward, 38);
     lookAt.y += 0.5;
     renderer.setShotCamera(cameraPosition, lookAt);
-  } else if (name === 'ring' || name === 'cockpit') {
+  } else if (name === 'cockpit') {
     const target = course.ringPositions[2];
     const normal = course.ringNormals[2];
     const direction = normal.clone().setY(0).normalize();
-    const cockpit = name === 'cockpit';
-    const position = target.clone().addScaledVector(direction, cockpit ? -46 : -30);
-    if (cockpit) position.y -= 3;
+    const position = target.clone().addScaledVector(direction, -46);
+    position.y -= 3;
     flight.reset(position, headingFor(direction));
-    Object.assign(flight.state, { speed: 48, roll: radians(6), throttle: 0.8, engineThrottle: 0.8, fuel: cockpit ? 0.62 : 0.66 });
+    Object.assign(flight.state, { speed: 48, roll: radians(6), throttle: 0.8, engineThrottle: 0.8, fuel: 0.62 });
     Object.assign(course.state, { nextIndex: 2, ringsPassed: 2, elapsed: 68, score: 200 });
-    if (cockpit) {
-      renderer.updateCockpitCamera(flight.state);
-      course.updateVisuals();
-      return { screen: 'play', cameraMode: 'cockpit' };
-    }
-    renderer.updateCamera(flight.state, STEP);
+    renderer.updateCockpitCamera(flight.state);
+    course.updateVisuals();
+    return { screen: 'play', cameraMode: 'cockpit' };
+  } else if (name === 'ring') {
+    const index = 7;
+    const target = course.ringPositions[index];
+    const axis = course.ringNormals[index].clone().setY(0).normalize();
+    const lateral = new THREE.Vector3(-axis.z, 0, axis.x);
+    const position = target.clone().addScaledVector(axis, -60).addScaledVector(lateral, -30);
+    position.y += 17;
+    const sunAzimuth = radians(SCENERY.sunAzimuth);
+    const sunward = new THREE.Vector3(Math.cos(sunAzimuth), 0, Math.sin(sunAzimuth));
+    const direction = target.clone().addScaledVector(lateral, -19.5).sub(position).setY(0)
+      .normalize().lerp(sunward, 0.22).normalize();
+    flight.reset(position, headingFor(direction));
+    Object.assign(flight.state, {
+      speed: 54, roll: radians(40), pitch: -0.08, throttle: 0.82, engineThrottle: 0.82, fuel: 0.49,
+    });
+    Object.assign(course.state, {
+      nextIndex: index, ringsPassed: index, elapsed: 151, score: index * COURSE.ringScore,
+    });
+    const right = new THREE.Vector3(-direction.z, 0, direction.x);
+    const cameraPosition = position.clone().addScaledVector(direction, -9).addScaledVector(right, -8);
+    cameraPosition.y += 3.8;
+    const lookAt = position.clone().lerp(target, 0.12);
+    lookAt.y += 0.1;
+    renderer.setShotCamera(cameraPosition, lookAt);
   } else if (name === 'bank') {
     const target = course.ringPositions[4];
     const incoming = target.clone().sub(course.ringPositions[3]);
@@ -71,10 +91,30 @@ export function stageShot(name, { flight, course, renderer, heightAt, wake }) {
     const lookAt = position.clone().addScaledVector(direction, VIEW.chaseLook).lerp(target, 0.5);
     renderer.setShotCamera(cameraPosition, lookAt);
   } else if (name === 'finish') {
-    const position = waterlaneCenter.clone().addScaledVector(waterlaneTangent, 40);
-    position.y = WORLD.seaLevel + AIRCRAFT.groundClearance;
-    flight.reset(position, waterlaneHeading + Math.PI, true);
-    flight.state.fuel = 0.34;
+    const dock = scene?.getObjectByName('Village dock and boats')?.position;
+    const rollDistance = 43.24;
+    const laneEnd = WATERLANE.length / 2 - 8;
+    const berth = dock ? dock.clone().sub(waterlaneCenter).dot(waterlaneTangent) : 55 + rollDistance;
+    const along = THREE.MathUtils.clamp(berth, -laneEnd + rollDistance, laneEnd);
+    const approach = waterlaneCenter.clone().addScaledVector(waterlaneTangent, along - rollDistance);
+    approach.y += AIRCRAFT.groundClearance + 0.34;
+    flight.reset(approach, waterlaneHeading);
+    const state = flight.state;
+    Object.assign(state, { speed: 26, throttle: 0.17, engineThrottle: 0.17 });
+    const landingInput = { pitchInput: () => -0.22, rollInput: () => 0, throttleInput: () => 0 };
+    for (let step = 0; step < 120 && !state.landed && !state.crashed; step++) {
+      flight.step(STEP, landingInput, heightAt);
+      wake.update(state, STEP);
+    }
+    if (!state.landed || state.touchdownSurface !== 'lane') throw new Error('Staged landing missed the water lane');
+    // Live play ends at contact. Continue the grounded roll only for this staged wake.
+    Object.assign(state, { grounded: true, landed: false, pitch: 0 });
+    const coastInput = { pitchInput: () => 0, rollInput: () => 0, throttleInput: () => -1 };
+    for (let step = 0; step < 44; step++) {
+      flight.step(STEP, coastInput, heightAt);
+      wake.update(state, STEP);
+    }
+    Object.assign(state, { grounded: false, landed: true, fuel: 0.34 });
     const elapsed = 192;
     const landingQuality = 465;
     const timeBonus = landingTimeBonus(elapsed);
@@ -82,11 +122,15 @@ export function stageShot(name, { flight, course, renderer, heightAt, wake }) {
       nextIndex: COURSE.ringCount, ringsPassed: COURSE.ringCount, elapsed, finished: true,
       landingQuality, timeBonus, score: COURSE.ringCount * COURSE.ringScore + landingQuality + timeBonus,
     });
-    const outward = position.clone().setY(0).normalize();
-    const cameraPosition = position.clone().addScaledVector(outward, 11).addScaledVector(waterlaneTangent, 6.5);
-    cameraPosition.y += 4.0;
-    const lookAt = position.clone();
-    lookAt.y += 0.8;
+    const position = state.position;
+    const shore = dock?.clone() ?? position.clone().setY(0).multiplyScalar(2.8);
+    const viewDirection = shore.sub(position).setY(0).normalize();
+    viewDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), radians(26));
+    const right = new THREE.Vector3(-viewDirection.z, 0, viewDirection.x);
+    const cameraPosition = position.clone().addScaledVector(viewDirection, -22).addScaledVector(right, 8);
+    cameraPosition.y = WORLD.seaLevel + 9;
+    const lookAt = position.clone().addScaledVector(right, 16);
+    lookAt.y = cameraPosition.y - Math.hypot(22, 8) * Math.tan(radians(13));
     renderer.setShotCamera(cameraPosition, lookAt);
     screen = 'over';
   } else {

@@ -19,7 +19,6 @@ export function createHud(canvas) {
   const ctx = canvas.getContext('2d');
   const viewTarget = new THREE.Vector3();
   const projected = new THREE.Vector3();
-  const frameRotation = new THREE.Euler(0, 0, 0, 'YXZ');
   let width;
   let height;
   let staged = false;
@@ -105,14 +104,6 @@ export function createHud(canvas) {
     ctx.fillStyle = cyan;
     ctx.fill();
     text(`HDG ${String(wrapDegrees(Math.round(degrees))).padStart(3, '0')}°`, center, y + 43, cyan, 13, 'center');
-  }
-
-  function cockpitCompassY(flight, position, camera) {
-    if (!camera) return 0;
-    frameRotation.set(flight.pitch, -flight.heading, -flight.roll);
-    // Anchor to the lower edge of the windshield's top seal.
-    projected.set(0, 1.032, -0.633).applyEuler(frameRotation).add(position).project(camera);
-    return THREE.MathUtils.clamp(Math.round((1 - projected.y) * height / 2), 0, Math.max(0, height - 54));
   }
 
   function radar(flight, course, position, x, y, radius) {
@@ -272,8 +263,10 @@ export function createHud(canvas) {
     const rings = course.state.ringsPassed;
     readout('RINGS', rings === COURSE.ringCount ? 'LAND' : `${rings}/${COURSE.ringCount}`,
       right + 10, margin + 84, width - margin - 10, amber, size);
-    const compassY = cockpit ? cockpitCompassY(flight, position, camera) : compact ? margin + 125 : margin;
-    compass(flight.heading, compassY, Math.min(HUD.compassWidth, compact ? width - 2 * margin : width - 465));
+    if (!cockpit) {
+      compass(flight.heading, compact ? margin + 125 : margin,
+        Math.min(HUD.compassWidth, compact ? width - 2 * margin : width - 465));
+    }
     if (!cockpit) objective(course, position, margin + (compact ? 187 : 62));
 
     const x = width / 2;

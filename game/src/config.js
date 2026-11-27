@@ -13,7 +13,7 @@ export const WATERLANE = { nx: -0.16, nz: 0.13, length: 620, width: 46, buoySpac
 export const TERRAIN = {
   frequency: 6, octaves: 5, lacunarity: 2, gain: 0.5, exponent: 1.3,
   innerStart: 0.35, innerEnd: 0.55, outerStart: 0.85, outerEnd: 1.05,
-  foamEnd: 1.5, sandEnd: 4, grassHigh: 125, steepNormalY: 0.5, warmRockStart: 100, paleStart: 125,
+  foamEnd: 1.35, sandEnd: 5.15, grassHigh: 125, steepNormalY: 0.67, warmRockStart: 100, paleStart: 125,
 };
 export const AIRCRAFT = {
   minSpeed: 16, maxSpeed: 74, throttleRate: 0.45,
@@ -45,9 +45,9 @@ export const COURSE = {
 };
 export const PALETTE = {
   skyZenith: '#3f4a78', skyMid: '#8a5a6d', horizon: '#f08a4b',
-  sun: '#ffb36b', fog: '#f2a05e', sea: '#1d6a80', seaEmissive: '#07293a', sand: '#dcbd82',
+  sun: '#ffb36b', fog: '#f2a05e', sea: '#1d6a80', seaEmissive: '#07293a', sand: '#f2e5bd',
   grassLow: '#6c8955', grassHigh: '#a99a60', rock: '#777c74', rockWarm: '#8d7f70', snow: '#f4efe6',
-  grassBright: '#86b364', forest: '#3a6b34', turquoise: '#8fd8cc', lagoon: '#2f9db4',
+  grassBright: '#86b364', forest: '#3a6b34', turquoise: '#83e5d4', lagoon: '#33babe',
   ring: '#ff9e4a', ringNext: '#ffc46b', ringPassed: '#57e6a3',
   hudAmber: '#ffc46b', hudCyan: '#7fe7ff',
   asphalt: '#43484f', centerline: '#fffcf5', chalk: '#fff3d8', edgeLight: '#ffe5a5', windsock: '#ff782f',

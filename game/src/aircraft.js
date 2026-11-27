@@ -261,10 +261,12 @@ function buildCockpit(materials, cockpit) {
     mesh.renderOrder = 2;
     return mesh;
   }
-  const column = brace(new THREE.CylinderGeometry(0.026, 0.032, 1, 10),
-    new THREE.Vector3(-0.49, -0.115, -0.99), bar, charcoal);
+  const yokeBase = new THREE.Vector3(-0.49, -0.42, -0.58);
+  const column = brace(new THREE.CylinderGeometry(0.026, 0.032, 1, 10), yokeBase, bar, charcoal);
   column.name = 'Yoke column';
   column.renderOrder = 2;
+  yokePart(new THREE.CylinderGeometry(0.041, 0.063, 0.065, 14),
+    gripRubber, yokeBase.x, yokeBase.y - 0.023, yokeBase.z, 'Yoke floor boot');
   yokePart(new THREE.BoxGeometry(0.30, 0.032, 0.036), charcoal, bar.x, bar.y, bar.z, 'Yoke crossbar');
   yokePart(new THREE.BoxGeometry(0.264, 0.005, 0.010), edge, bar.x, bar.y + 0.016, bar.z + 0.012, 'Yoke edge');
   const hub = yokePart(new THREE.CylinderGeometry(0.034, 0.034, 0.037, 16),

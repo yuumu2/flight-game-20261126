@@ -263,8 +263,8 @@ function addShallows(scene, sample, waterTexture) {
   for (let i = 0; i < positions.count; i++) {
     const depth = -sample(positions.getX(i), positions.getZ(i));
     if (depth <= 0.35) color.copy(foam).lerp(turquoise, smoothstep(0, 0.35, depth));
-    else if (depth <= 2.4) color.copy(turquoise).lerp(lagoon, smoothstep(0.35, 2.4, depth));
-    else color.copy(lagoon).lerp(sea, smoothstep(2.4, 6.5, depth));
+    else if (depth <= 3.6) color.copy(turquoise).lerp(lagoon, smoothstep(0.35, 3.6, depth));
+    else color.copy(lagoon).lerp(sea, smoothstep(3.6, 6.4, depth));
     color.toArray(colors, i * 3);
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -285,29 +285,6 @@ function slopeAt(sample, x, z) {
     sample(x + spacing, z) - sample(x - spacing, z),
     sample(x, z + spacing) - sample(x, z - spacing),
   ) / (2 * spacing);
-}
-
-function terrainGrain(seed) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 512;
-  const ctx = canvas.getContext('2d');
-  const image = ctx.createImageData(canvas.width, canvas.height);
-  for (let i = 0; i < image.data.length; i += 4) {
-    const pixel = i / 4;
-    const x = pixel % canvas.width;
-    const y = Math.floor(pixel / canvas.width);
-    const grain = valueNoise(x / 24, y / 24, seed + 140) * 0.65
-      + valueNoise(x / 5, y / 5, seed + 141) * 0.35;
-    const grey = Math.round(218 + grain * 34);
-    image.data[i] = image.data[i + 1] = image.data[i + 2] = grey;
-    image.data[i + 3] = 255;
-  }
-  ctx.putImageData(image, 0, 0);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(160, 160);
-  texture.anisotropy = 8;
-  return texture;
 }
 
 function addTerrain(scene, grid, seed) {
@@ -348,7 +325,7 @@ function addTerrain(scene, grid, seed) {
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const material = new THREE.MeshStandardMaterial({
-    map: terrainGrain(seed), vertexColors: true, flatShading: true, roughness: 1,
+    vertexColors: true, roughness: 1,
   });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.biomeFoam = { value: new THREE.Color(PALETTE.foam) };
@@ -357,30 +334,52 @@ function addTerrain(scene, grid, seed) {
     shader.uniforms.biomeWarmRock = { value: new THREE.Color(PALETTE.rockWarm) };
     shader.uniforms.biomePale = { value: new THREE.Color(PALETTE.snow) };
     shader.vertexShader = `
-      varying float vTerrainElevation;
+      varying vec3 vTerrainWorld;
       ${shader.vertexShader}
     `.replace('#include <begin_vertex>', `
       #include <begin_vertex>
-      vTerrainElevation = position.y;
+      vTerrainWorld = (modelMatrix * vec4(position, 1.0)).xyz;
     `);
-    // Use the flat-shaded face normal in world space so rock boundaries never bleed onto grassy slopes.
     shader.fragmentShader = `
-      varying float vTerrainElevation;
+      varying vec3 vTerrainWorld;
       uniform vec3 biomeFoam, biomeSand, biomeRock, biomeWarmRock, biomePale;
+
+      float terrainHash(vec2 p) {
+        vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+        q += dot(q, q.yzx + 33.33);
+        return fract((q.x + q.y) * q.z);
+      }
+
+      float terrainNoise(vec2 p) {
+        vec2 cell = floor(p);
+        vec2 w = fract(p);
+        w *= w * (3.0 - 2.0 * w);
+        return mix(
+          mix(terrainHash(cell), terrainHash(cell + vec2(1, 0)), w.x),
+          mix(terrainHash(cell + vec2(0, 1)), terrainHash(cell + vec2(1, 1)), w.x), w.y);
+      }
       ${shader.fragmentShader}
     `.replace('#include <normal_fragment_begin>', `
       #include <normal_fragment_begin>
+      vec2 ground = mat2(0.87, -0.49, 0.49, 0.87) * vTerrainWorld.xz;
+      float broadGrain = terrainNoise(ground / 13.9 + 31.7);
+      float fineGrain = terrainNoise(ground / 2.65 - 7.8);
+      float dither = (broadGrain - 0.5) * 0.86 + (fineGrain - 0.5) * 0.36;
+      float altitude = vTerrainWorld.y;
       float upNormal = inverseTransformDirection(normal, viewMatrix).y;
-      if (vTerrainElevation > ${TERRAIN.paleStart.toFixed(1)}) {
-        diffuseColor.rgb = biomePale;
-      } else if (vTerrainElevation <= ${TERRAIN.foamEnd.toFixed(1)}) {
-        diffuseColor.rgb = biomeFoam;
-      } else if (vTerrainElevation <= ${TERRAIN.sandEnd.toFixed(1)}) {
-        diffuseColor.rgb = biomeSand;
-      } else if (upNormal < ${TERRAIN.steepNormalY}) {
-        diffuseColor.rgb = mix(diffuseColor.rgb,
-          vTerrainElevation > ${TERRAIN.warmRockStart.toFixed(1)} ? biomeWarmRock : biomeRock, 0.8);
-      }
+      float rock = 1.0 - smoothstep(${TERRAIN.steepNormalY} - 0.08,
+        ${TERRAIN.steepNormalY} + 0.08, upNormal + dither * 0.08);
+      vec3 stone = mix(biomeRock, biomeWarmRock,
+        smoothstep(${TERRAIN.warmRockStart.toFixed(1)} - 8.0, ${TERRAIN.warmRockStart.toFixed(1)} + 8.0, altitude));
+      vec3 groundColor = mix(diffuseColor.rgb, stone, 0.92 * rock);
+      float beach = 1.0 - smoothstep(${TERRAIN.sandEnd} - 0.45, ${TERRAIN.sandEnd} + 0.45, altitude + dither);
+      float foam = 1.0 - smoothstep(${TERRAIN.foamEnd} - 0.23, ${TERRAIN.foamEnd} + 0.23, altitude + dither * 0.65);
+      float pale = smoothstep(${TERRAIN.paleStart.toFixed(1)} - 1.0,
+        ${TERRAIN.paleStart.toFixed(1)} + 1.0, altitude + dither);
+      groundColor = mix(groundColor, biomeSand, beach);
+      groundColor = mix(groundColor, biomeFoam, foam * 0.75);
+      groundColor = mix(groundColor, biomePale, pale);
+      diffuseColor.rgb = groundColor * (1.0 + (broadGrain - 0.5) * 0.20 + (fineGrain - 0.5) * 0.11);
     `);
   };
   const terrain = new THREE.Mesh(geometry, material);
